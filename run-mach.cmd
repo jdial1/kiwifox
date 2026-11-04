@@ -6,5 +6,7 @@ SET USE_MINTTY=0
 SET MOZBUILD_STATE_PATH=F:\mozilla-state
 SET MOZCONFIG=F:\kiwifox\mozconfig
 SET CHERE_INVOKING=1
+REM No emulator needed: this makes bootstrap skip AVD creation (fails on Windows without a system image)
+SET ANDROID_AVD_PATH=F:\mozilla-state\avd
 CD /D F:\kiwifox\firefox-FIREFOX_159_0_1_RELEASE
 %MOZILLABUILD%msys2\msys2_shell.cmd -no-start -defterm -full-path -here -c "bash %1"
