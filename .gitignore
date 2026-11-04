@@ -2,3 +2,4 @@ firefox-*/
 *.apk
 clone.log
 __pycache__/
+*.log
