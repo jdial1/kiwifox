@@ -1,0 +1,29 @@
+{
+  "_source": "cascade",
+  "light": {
+    "background": "#FAF4ED",
+    "surface": "#FAF4ED",
+    "surfaceBright": "#FAF4ED",
+    "surfaceContainer": "#FAF4ED",
+    "surfaceContainerLow": "#FAF4ED",
+    "surfaceContainerLowest": "#FAF4ED",
+    "surfaceContainerHigh": "#FAF4ED",
+    "surfaceContainerHighest": "#FAF4ED",
+    "onBackground": "#575279",
+    "onSurface": "#575279",
+    "onSurfaceVariant": "#575279"
+  },
+  "dark": {
+    "background": "#191724",
+    "surface": "#191724",
+    "surfaceBright": "#191724",
+    "surfaceContainer": "#191724",
+    "surfaceContainerLow": "#191724",
+    "surfaceContainerLowest": "#191724",
+    "surfaceContainerHigh": "#191724",
+    "surfaceContainerHighest": "#191724",
+    "onBackground": "#E0DEF4",
+    "onSurface": "#E0DEF4",
+    "onSurfaceVariant": "#E0DEF4"
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "_source": "Decoded from Kiwi Browser APK, GitHub release 14310011181 (res/values + res/values-night)",
+  "light": {
+    "background": "#FFFFFF",
+    "surface": "#FFFFFF",
+    "surfaceBright": "#FFFFFF",
+    "surfaceContainer": "#FFFFFF",
+    "surfaceContainerLow": "#FFFFFF",
+    "surfaceContainerLowest": "#FFFFFF",
+    "surfaceContainerHigh": "#EDEFF1",
+    "surfaceContainerHighest": "#EDEFF1",
+    "onBackground": "#1F1F1F",
+    "onSurface": "#1F1F1F",
+    "onSurfaceVariant": "#1F1F1F",
+    "primary": "#0B57D0",
+    "onPrimary": "#FFFFFF",
+    "tertiary": "#0B57D0",
+    "onTertiary": "#FFFFFF"
+  },
+  "dark": {
+    "background": "#1F1F1F",
+    "surface": "#1F1F1F",
+    "surfaceBright": "#1F1F1F",
+    "surfaceContainer": "#1F1F1F",
+    "surfaceContainerLow": "#1F1F1F",
+    "surfaceContainerLowest": "#1F1F1F",
+    "surfaceContainerHigh": "#333435",
+    "surfaceContainerHighest": "#333435",
+    "onBackground": "#E3E3E3",
+    "onSurface": "#E3E3E3",
+    "onSurfaceVariant": "#E3E3E3",
+    "primary": "#A8C7FA",
+    "onPrimary": "#1F1F1F",
+    "tertiary": "#A8C7FA",
+    "onTertiary": "#1F1F1F"
+  }
+}

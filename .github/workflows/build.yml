@@ -1,0 +1,83 @@
+name: Build KiwiFox
+
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Firefox release tag (e.g. FIREFOX_159_0_1_RELEASE). Blank = latest."
+        required: false
+
+env:
+  # Theme JSON to build with. Create new ones locally with import_theme.py and commit them.
+  THEME: theme/kiwi.json
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve Firefox release tag
+        id: tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ github.event.inputs.tag }}"
+          if [ -z "$TAG" ]; then
+            TAG=$(git ls-remote --tags https://github.com/mozilla-firefox/firefox \
+              | grep -oE 'FIREFOX_[0-9]+_[0-9]+(_[0-9]+)?_RELEASE$' | sort -V | tail -1)
+          fi
+          test -n "$TAG" || { echo "no release tag found"; exit 1; }
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "already built $TAG"; echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Free disk space
+        if: steps.tag.outputs.skip != 'true'
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+
+      - name: Fetch Firefox source
+        if: steps.tag.outputs.skip != 'true'
+        run: git clone --depth 1 -b "${{ steps.tag.outputs.tag }}" https://github.com/mozilla-firefox/firefox firefox
+
+      - name: Inject theme
+        if: steps.tag.outputs.skip != 'true'
+        run: python3 inject_theme.py firefox "$THEME" app.json
+
+      - name: Build
+        if: steps.tag.outputs.skip != 'true'
+        working-directory: firefox
+        env:
+          MOZCONFIG: ${{ github.workspace }}/mozconfig
+        run: |
+          ./mach --no-interactive bootstrap --application-choice "GeckoView/Firefox for Android Artifact Mode"
+          ./mach build
+          ./mach gradle fenix:assembleRelease -PdisableDebugSigning
+
+      - name: Sign APK
+        if: steps.tag.outputs.skip != 'true'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        run: |
+          APK=$(find firefox -path '*fenix/app/outputs/apk/release/*.apk' | head -1)
+          test -n "$APK" || { echo "release APK not found"; exit 1; }
+          APKSIGNER=$(find ~/.mozbuild -name apksigner -type f | sort -V | tail -1)
+          test -n "$APKSIGNER" || { echo "apksigner not found"; exit 1; }
+          echo "$KEYSTORE_BASE64" | base64 -d > release.jks
+          "$APKSIGNER" sign --ks release.jks --ks-pass env:KEYSTORE_PASSWORD \
+            --ks-key-alias "$KEY_ALIAS" --out "kiwifox-${{ steps.tag.outputs.tag }}-arm64.apk" "$APK"
+          rm release.jks
+
+      - name: Publish
+        if: steps.tag.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ steps.tag.outputs.tag }}" kiwifox-*.apk --title "KiwiFox ${{ steps.tag.outputs.tag }}" --notes "Firefox ${{ steps.tag.outputs.tag }} + $THEME"

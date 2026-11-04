@@ -1,0 +1,33 @@
+{
+  "_source": "Firefox Alpenglow",
+  "light": {
+    "background": "#FFF2E7",
+    "surface": "#FFF2E7",
+    "surfaceBright": "#FFF2E7",
+    "surfaceContainer": "#FFF2E7",
+    "surfaceContainerLow": "#FFF2E7",
+    "surfaceContainerLowest": "#FFF2E7",
+    "surfaceContainerHigh": "#FFFCFA",
+    "surfaceContainerHighest": "#FFFCFA",
+    "onBackground": "#20123B",
+    "onSurface": "#20123B",
+    "onSurfaceVariant": "#20123B",
+    "primary": "#AC70FF",
+    "tertiary": "#AC70FF"
+  },
+  "dark": {
+    "background": "#281D4E",
+    "surface": "#281D4E",
+    "surfaceBright": "#281D4E",
+    "surfaceContainer": "#281D4E",
+    "surfaceContainerLow": "#281D4E",
+    "surfaceContainerLowest": "#281D4E",
+    "surfaceContainerHigh": "#2D245B",
+    "surfaceContainerHighest": "#2D245B",
+    "onBackground": "#E8E0FF",
+    "onSurface": "#E8E0FF",
+    "onSurfaceVariant": "#E8E0FF",
+    "primary": "#AC70FF",
+    "tertiary": "#AC70FF"
+  }
+}
