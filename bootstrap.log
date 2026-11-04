@@ -1,0 +1,21 @@
+bash.exe: warning: could not find /tmp, please create!
+mkdir: cannot create directory '/dev/shm': Read-only file system
+
+Creating /dev/shm directory failed.
+POSIX semaphores and POSIX shared memory will not work
+
+mkdir: cannot create directory '/dev/mqueue': Read-only file system
+
+Creating /dev/mqueue directory failed.
+POSIX message queues will not work
+
+stty: 'standard input': Inappropriate ioctl for device
+MozillaBuild Install Directory: F:\mozilla-build\
+Usage: grep [OPTION]... PATTERN [FILE]...
+Try 'grep --help' for more information.
+mkdtemp: private socket dir: No such file or directory
+Could not open a connection to your authentication agent.
+bash.exe: warning: could not find /tmp, please create!
++ ./mach --version
+usage: mach [global arguments] command [command arguments]
+mach: error: unrecognized arguments: --version

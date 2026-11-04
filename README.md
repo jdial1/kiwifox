@@ -89,3 +89,21 @@ that only trusts unconditional `:root` rules and refuses anything else
 (attribute-state selectors, `-moz-pref()` media, system colors like
 `ActiveCaption`). On the 12 themes it resolves 2: cascade (both modes) and
 MaterialFox (light only). Everything else fails loudly rather than guessing.
+
+## Windows (no WSL) local build
+
+`local_build.sh` needs Linux/macOS. On Windows, Mozilla's plain bootstrapper
+refuses Android, but the MozillaBuild one supports Android artifact mode:
+
+1. Extract `MozillaBuildSetup-Latest.exe` with 7-Zip to `F:\mozilla-build`
+   (no admin needed; the NSIS installer is just an archive).
+2. Clone and inject as in `local_build.sh` (`git clone --depth 1 -b <TAG>`,
+   `python inject_theme.py <src> theme/<name>.json app.json`).
+3. `run-mach.cmd <script.sh>` runs a bash script inside MozillaBuild with
+   `MOZCONFIG`, `MOZBUILD_STATE_PATH=F:\mozilla-state` and cwd set to the
+   source tree. `bootstrap.sh` is the bootstrap step; see `build.sh` for the
+   build step.
+
+`inject_theme.py` reads and writes files with `newline=""` so Windows Python
+does not turn the upstream LF files into CRLF (that made the diff 2600 lines
+instead of 48).
