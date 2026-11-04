@@ -96,7 +96,9 @@ MaterialFox (light only). Everything else fails loudly rather than guessing.
 refuses Android, but the MozillaBuild one supports Android artifact mode:
 
 1. Extract `MozillaBuildSetup-Latest.exe` with 7-Zip to `F:\mozilla-build`
-   (no admin needed; the NSIS installer is just an archive).
+   (no admin needed; the NSIS installer is just an archive), then create
+   `F:\mozilla-build\msys2\tmp`: the installer normally makes it, and without
+   it bash prints a warning that breaks mach's mozconfig parser.
 2. Clone and inject as in `local_build.sh` (`git clone --depth 1 -b <TAG>`,
    `python inject_theme.py <src> theme/<name>.json app.json`).
 3. `run-mach.cmd <script.sh>` runs a bash script inside MozillaBuild with
