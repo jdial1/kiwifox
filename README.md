@@ -109,3 +109,16 @@ refuses Android, but the MozillaBuild one supports Android artifact mode:
 `inject_theme.py` reads and writes files with `newline=""` so Windows Python
 does not turn the upstream LF files into CRLF (that made the diff 2600 lines
 instead of 48).
+
+Bootstrap on Windows leaves `build-tools` and `platforms` uninstalled: the
+current Google command-line tools replace `sdkmanager` with a wrapper, and
+cmd.exe splits package names at the `;`. Install them once by hand from
+PowerShell (not cmd or bash):
+
+```
+$env:JAVA_HOME = "F:\mozilla-state\jdk\jdk-17.0.20.1+1"
+F:\mozilla-state\android-sdk-windows\cmdline-tools\23.0\bin\android.exe sdk install --no-metrics "build-tools;37.0.0" "platforms;android-37.2"
+```
+
+(Versions come from `python/mozboot/mozboot/android-packages.txt` in the
+Firefox tree; check them when the tag changes.)
