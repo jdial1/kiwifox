@@ -106,6 +106,14 @@ refuses Android, but the MozillaBuild one supports Android artifact mode:
    source tree. `bootstrap.sh` is the bootstrap step; see `build.sh` for the
    build step.
 
+Verified 2026-11-04 on FIREFOX_159_0_1_RELEASE + cascade: bootstrap, `mach build`
+(artifact mode) and `mach gradle fenix:assembleRelease` succeed (Gradle 21m48s,
+12 threads, 24 GB RAM). The `--application-choice` string in `local_build.sh`
+matches `python/mozboot/mozboot/bootstrap.py` exactly. Output is three per-ABI
+APKs under `objdir-kiwifox/gradle/build/mobile/android/fenix/app/outputs/apk/release/`;
+the arm64 one is copied to `kiwifox-<TAG>-<theme>.apk` here (package
+`org.mozilla.kiwifox`, Android Debug signature, installs side by side with Firefox).
+
 `inject_theme.py` reads and writes files with `newline=""` so Windows Python
 does not turn the upstream LF files into CRLF (that made the diff 2600 lines
 instead of 48).
