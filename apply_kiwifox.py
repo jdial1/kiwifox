@@ -187,22 +187,14 @@ def patch_strings(text: str) -> str:
         '    <string name="kiwifox_import_file">Import file</string>\n'
         '    <string name="kiwifox_import_action">Import</string>\n'
         '    <string name="kiwifox_cancel">Cancel</string>\n'
-        '    <string name="kiwifox_import_hint">Links: addons.mozilla.org themes, GitHub repos, or direct .xpi/.zip/.css/.json. Files: theme .xpi/.zip, manifest.json, userChrome.css.</string>
-'
-        "    <!-- KiwiFox: section headers of the theme list -->
-"
-        '    <string name="kiwifox_section_installed">Installed</string>
-'
-        '    <string name="kiwifox_section_catalog">r/FirefoxCSS themes</string>
-'
-        '    <string name="kiwifox_catalog_summary">The most popular userChrome.css themes, fetched from their GitHub repositories. Only themes whose toolbar colors are literal values convert; others take their colors from an AMO theme or browser state, and Add explains why.</string>
-'
-        "    <!-- KiwiFox: catalogue row actions -->
-"
-        '    <string name="kiwifox_add">Add</string>
-'
-        '    <string name="kiwifox_installed">Installed</string>
-'
+        '    <string name="kiwifox_import_hint">Links: addons.mozilla.org themes, GitHub repos, or direct .xpi/.zip/.css/.json. Files: theme .xpi/.zip, manifest.json, userChrome.css.</string>\n'
+        "    <!-- KiwiFox: section headers of the theme list -->\n"
+        '    <string name="kiwifox_section_installed">Installed</string>\n'
+        '    <string name="kiwifox_section_catalog">r/FirefoxCSS themes</string>\n'
+        '    <string name="kiwifox_catalog_summary">The most popular userChrome.css themes, fetched from their GitHub repositories. Only themes whose toolbar colors are literal values convert; others take their colors from an AMO theme or browser state, and Add explains why.</string>\n'
+        "    <!-- KiwiFox: catalogue row actions -->\n"
+        '    <string name="kiwifox_add">Add</string>\n'
+        '    <string name="kiwifox_installed">Installed</string>\n'
         "    <!-- KiwiFox: import status messages. %1$s is the theme name or the error -->\n"
         '    <string name="kiwifox_import_working">Importing…</string>\n'
         '    <string name="kiwifox_import_done">Imported and applied: %1$s</string>\n'
