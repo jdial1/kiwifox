@@ -33,7 +33,7 @@ object CssThemeExtractor {
 
     /** `:root`, optionally followed by negations only: `:not(...)` or `:is(:not(...), :not(...))`. */
     private val ROOT_SELECTOR = Regex("^(:root|\\*|html|body)(:not\\([^()]*\\)|:is\\((\\s*:not\\([^()]*\\)\\s*,?)+\\s*\\))*$")
-    private val LIGHT_DARK = Regex("^light-dark\\(\\s*(.+?)\\s*,\\s*(.+)\\)$")
+    private val LIGHT_DARK = Regex("^light-dark\\((.*)\\)$")
     private val VAR = Regex("^var\\(\\s*(--[\\w-]+)\\s*(?:,\\s*(.+))?\\)$")
     private val SCHEME_QUERY = Regex("prefers-color-scheme\\s*:\\s*(light|dark)")
     private val PLATFORM_QUERY = Regex("-moz-platform\\s*:\\s*([a-z]+)")
@@ -171,7 +171,11 @@ object CssThemeExtractor {
     private fun resolveValue(raw: String, variables: Map<String, String>, scheme: String, depth: Int): String {
         if (depth > MAX_DEPTH) throw Unresolved(raw)
         var value = raw.trim()
-        LIGHT_DARK.matchEntire(value)?.let { m -> value = m.groupValues[if (scheme == "light") 1 else 2].trim() }
+        LIGHT_DARK.matchEntire(value)?.let { m ->
+            val args = splitTopLevel(m.groupValues[1], ',')
+            if (args.size != 2) throw Unresolved("$raw: light-dark() needs two values")
+            value = args[if (scheme == "light") 0 else 1].trim()
+        }
         VAR.matchEntire(value)?.let { m ->
             return try {
                 resolve(m.groupValues[1], variables, scheme, depth + 1)
@@ -198,12 +202,14 @@ object CssThemeExtractor {
             val body = rule.body ?: continue // `@import ...;` and stray statements have no block
             if (prelude.startsWith("@")) {
                 var nestedActive = active
-                if (prelude.lowercase().startsWith("@media")) {
+                val lower = prelude.lowercase()
+                if (lower.contains("-moz-pref") || lower.contains("-moz-bool-pref")) continue // depends on a user pref
+                if (lower.startsWith("@media")) {
                     nestedActive = active && (mediaMatches(prelude, scheme) ?: continue)
                 }
                 walk(body, scheme, nestedActive, found)
             } else if (active) {
-                val selectors = prelude.split(",").map { it.trim() }
+                val selectors = splitTopLevel(prelude, ',').map { it.trim() }
                 // A selector list applies if any selector matches the default browser state.
                 if (selectors.none { ROOT_SELECTOR.matches(it) }) continue
                 for ((name, rawValue) in declarations(body)) {
@@ -234,6 +240,28 @@ object CssThemeExtractor {
         if (q.contains("prefers-contrast") && !q.contains("no-preference")) return false
         if (q.contains("print")) return false
         return true
+    }
+
+    /** Splits on [sep] outside parentheses, brackets and strings. */
+    private fun splitTopLevel(text: String, sep: Char): List<String> {
+        val out = ArrayList<String>()
+        var depth = 0
+        var start = 0
+        var i = 0
+        while (i < text.length) {
+            when (text[i]) {
+                '"', '\'' -> i = skipString(text, i)
+                '(', '[' -> depth++
+                ')', ']' -> depth--
+                sep -> if (depth == 0) {
+                    out.add(text.substring(start, i))
+                    start = i + 1
+                }
+            }
+            i++
+        }
+        out.add(text.substring(start))
+        return out
     }
 
     private class Rule(val prelude: String, val body: String?)
