@@ -9,7 +9,6 @@ import mozilla.components.concept.fetch.Client
 import mozilla.components.concept.fetch.Header
 import mozilla.components.concept.fetch.MutableHeaders
 import mozilla.components.concept.fetch.Request
-import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayInputStream
 import java.io.IOException
@@ -22,7 +21,8 @@ import java.util.zip.ZipInputStream
  * Links understood:
  * - addons.mozilla.org theme pages (resolved through the AMO API to the `.xpi`)
  * - direct `.xpi` / `.zip` / `manifest.json` / `.css` URLs
- * - reddit.com posts (r/FirefoxCSS): the first GitHub link in the post is followed
+ * - reddit.com links are refused: Reddit's bot check blocks app traffic, so the popular
+ *   r/FirefoxCSS themes are listed in [ThemeCatalog] with their GitHub links instead
  * - github.com repositories or files: every `.css` file is read and run through [CssThemeExtractor];
  *   a `manifest.json` with a `theme` key is preferred when the repository ships one
  * - color.firefox.com share links are refused with instructions (the payload is LZMA-compressed;
@@ -34,7 +34,12 @@ class ThemeImporter(private val client: Client) {
     private val userAgent = "KiwiFox/1.0 (Firefox for Android theme importer)"
 
     @Throws(ThemeImportException::class)
-    fun importUrl(input: String, depth: Int = 0): Imported {
+    fun importUrl(input: String): Imported {
+        val imported = importUrlInternal(input, 0)
+        return Imported(imported.theme.copy(source = input.trim()), imported.notes)
+    }
+
+    private fun importUrlInternal(input: String, depth: Int): Imported {
         val url = input.trim()
         if (depth > MAX_REDIRECT_DEPTH) throw ThemeImportException("too many link hops")
         val uri = runCatching { Uri.parse(url) }.getOrNull() ?: throw ThemeImportException("not a URL: $url")
@@ -46,7 +51,10 @@ class ThemeImporter(private val client: Client) {
                 "Firefox Color share links are compressed in a format this app cannot read. In Firefox Color, " +
                     "use Export and import the downloaded file here.",
             )
-            host.endsWith("reddit.com") || host == "redd.it" -> importReddit(url, depth)
+            host.endsWith("reddit.com") || host == "redd.it" -> throw ThemeImportException(
+                "Reddit links cannot be fetched from the app. Pick the theme from the r/FirefoxCSS list, " +
+                    "or paste the theme's GitHub link from the post.",
+            )
             host == "github.com" -> importGithub(path, depth)
             host == "raw.githubusercontent.com" || path.endsWith(".css") -> fromCss(fetchText(url), nameFromUrl(url))
             path.endsWith(".xpi") || path.endsWith(".zip") -> fromZip(fetchBytes(url), nameFromUrl(url))
@@ -57,7 +65,10 @@ class ThemeImporter(private val client: Client) {
 
     /** Imports a file picked by the user: `.xpi`, `.zip`, `manifest.json`, a KiwiFox theme JSON, or `.css`. */
     @Throws(ThemeImportException::class)
-    fun importFile(bytes: ByteArray, displayName: String): Imported = fromBytes(bytes, displayName.substringBeforeLast('.'))
+    fun importFile(bytes: ByteArray, displayName: String): Imported {
+        val imported = fromBytes(bytes, displayName.substringBeforeLast('.'))
+        return Imported(imported.theme.copy(source = displayName), imported.notes)
+    }
 
     // ---- sources -------------------------------------------------------------------------------
 
@@ -76,21 +87,6 @@ class ThemeImporter(private val client: Client) {
             name = if (firstKey != null) names.optString(firstKey) else ""
         }
         return fromZip(fetchBytes(file.getString("url")), name.ifBlank { slug })
-    }
-
-    private fun importReddit(url: String, depth: Int): Imported {
-        val clean = url.substringBefore('?').substringBefore('#').trimEnd('/')
-        val json = fetchText("$clean/.json", accept = "application/json")
-        val post = runCatching {
-            JSONArray(json).getJSONObject(0).getJSONObject("data").getJSONArray("children").getJSONObject(0).getJSONObject("data")
-        }.getOrElse { throw ThemeImportException("could not read the Reddit post (Reddit may require signing in from this network)") }
-        val text = listOf(post.optString("url"), post.optString("url_overridden_by_dest"), post.optString("selftext")).joinToString("\n")
-        val links = GITHUB_LINK.findAll(text).map { it.value.trimEnd('.', ')', ',') }.toList()
-        val direct = DIRECT_THEME_LINK.findAll(text).map { it.value.trimEnd('.', ')', ',') }.firstOrNull()
-        val target = links.firstOrNull() ?: direct
-            ?: throw ThemeImportException("the Reddit post links no GitHub repository or theme file; open the post and find the theme's own download link")
-        val imported = importUrl(target, depth + 1)
-        return Imported(imported.theme, listOf("from Reddit post: ${post.optString("title")}") + imported.notes)
     }
 
     @Suppress("ReturnCount")
@@ -235,7 +231,5 @@ class ThemeImporter(private val client: Client) {
         private const val MAX_CSS_FILES = 40
         private const val MAX_CSS_BYTES = 2 * 1024 * 1024
         private const val MAX_DOWNLOAD_BYTES = 8 * 1024 * 1024
-        private val GITHUB_LINK = Regex("https?://(?:www\\.)?github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[^\\s)\\]\"']*)?")
-        private val DIRECT_THEME_LINK = Regex("https?://[^\\s)\\]\"']+\\.(?:xpi|zip|css|json)")
     }
 }

@@ -14,8 +14,8 @@ import java.io.File
  * Holds the installed themes and the selected one. [current] is Compose state, so every
  * `FirefoxTheme { }` composition recomposes as soon as the selection changes.
  *
- * Bundled themes live in `assets/kiwifox/themes/*.json`; imported ones in
- * `filesDir/kiwifox/themes/*.json`. The selection is a theme id in the "kiwifox" preferences.
+ * Bundled themes live in `assets/kiwifox/themes/` (one `.json` per theme); imported ones in
+ * `filesDir/kiwifox/themes/`. The selection is a theme id in the "kiwifox" preferences.
  */
 object KiwiThemeManager {
     private const val PREFS = "kiwifox"

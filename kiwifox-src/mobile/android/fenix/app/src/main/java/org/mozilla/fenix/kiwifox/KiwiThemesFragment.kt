@@ -25,10 +25,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -38,6 +39,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -47,6 +49,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
@@ -59,10 +62,18 @@ import org.mozilla.fenix.ext.requireComponents
 import org.mozilla.fenix.ext.showToolbar
 import org.mozilla.fenix.theme.FirefoxTheme
 
-/** Settings screen: pick a KiwiFox toolbar theme, import one from a link or a file, delete imported ones. */
+/**
+ * Settings > Customize > Toolbar themes. Laid out like the add-ons manager: an "Installed"
+ * section where exactly one entry is active, an "r/FirefoxCSS" section listing [ThemeCatalog]
+ * with an Add button per theme, and import-from-link / import-file actions.
+ */
 class KiwiThemesFragment : Fragment(), SystemInsetsPaddedFragment {
     private var status by mutableStateOf<String?>(null)
     private var busy by mutableStateOf(false)
+
+    /** Per catalogue entry: the last Add outcome (error text), shown under the row. */
+    private val catalogStatus = mutableStateMapOf<String, String>()
+    private var catalogBusy by mutableStateOf<String?>(null)
 
     private val openDocument = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri ?: return@registerForActivityResult
@@ -86,8 +97,11 @@ class KiwiThemesFragment : Fragment(), SystemInsetsPaddedFragment {
                         selected = KiwiThemeManager.current,
                         status = status,
                         busy = busy,
+                        catalogStatus = catalogStatus,
+                        catalogBusy = catalogBusy,
                         onSelect = { KiwiThemeManager.select(requireContext(), it) },
                         onDelete = { KiwiThemeManager.delete(requireContext(), it) },
+                        onAddCatalog = { entry -> addFromCatalog(entry) },
                         onImportUrl = { url -> runImport { ThemeImporter(requireComponents.core.client).importUrl(url) } },
                         onImportFile = { openDocument.launch(arrayOf("*/*")) },
                     )
@@ -99,6 +113,28 @@ class KiwiThemesFragment : Fragment(), SystemInsetsPaddedFragment {
     override fun onResume() {
         super.onResume()
         showToolbar(getString(R.string.kiwifox_themes_title))
+    }
+
+    private fun addFromCatalog(entry: ThemeCatalog.Entry) {
+        val context = requireContext().applicationContext
+        val client = requireComponents.core.client
+        catalogBusy = entry.repoUrl
+        catalogStatus.remove(entry.repoUrl)
+        viewLifecycleOwner.lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching { ThemeImporter(client).importUrl(entry.repoUrl) }
+            }
+            catalogBusy = null
+            if (!isAdded) return@launch
+            result.fold(
+                onSuccess = { imported ->
+                    val stored = KiwiThemeManager.saveImported(context, imported.theme.copy(name = entry.name))
+                    KiwiThemeManager.select(context, stored)
+                    if (imported.notes.isNotEmpty()) catalogStatus[entry.repoUrl] = imported.notes.joinToString("\n")
+                },
+                onFailure = { e -> catalogStatus[entry.repoUrl] = e.message ?: e.javaClass.simpleName },
+            )
+        }
     }
 
     private fun runImport(block: suspend () -> ThemeImporter.Imported) {
@@ -141,66 +177,123 @@ private fun KiwiThemesScreen(
     selected: KiwiTheme?,
     status: String?,
     busy: Boolean,
+    catalogStatus: Map<String, String>,
+    catalogBusy: String?,
     onSelect: (KiwiTheme?) -> Unit,
     onDelete: (KiwiTheme) -> Unit,
+    onAddCatalog: (ThemeCatalog.Entry) -> Unit,
     onImportUrl: (String) -> Unit,
     onImportFile: () -> Unit,
 ) {
     var showUrlDialog by remember { mutableStateOf(false) }
     var url by remember { mutableStateOf("") }
+    val installedSources = themes.map { it.source }.toSet()
 
-    Column(
+    LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background),
     ) {
-        LazyColumn(modifier = Modifier.weight(1f)) {
-            item {
-                ThemeRow(
-                    name = stringResource(R.string.kiwifox_theme_default),
-                    subtitle = stringResource(R.string.kiwifox_theme_default_summary),
-                    selected = selected == null,
-                    swatch = null,
-                    onClick = { onSelect(null) },
-                    onDelete = null,
-                )
-            }
-            items(themes, key = { it.id }) { theme ->
-                ThemeRow(
-                    name = theme.name,
-                    subtitle = if (theme.builtIn) stringResource(R.string.kiwifox_theme_bundled) else theme.source,
-                    selected = selected?.id == theme.id,
-                    swatch = theme,
-                    onClick = { onSelect(theme) },
-                    onDelete = if (theme.builtIn) null else ({ onDelete(theme) }),
-                )
-            }
+        item { SectionHeader(stringResource(R.string.kiwifox_section_installed)) }
+        item {
+            ThemeRow(
+                name = stringResource(R.string.kiwifox_theme_default),
+                subtitle = stringResource(R.string.kiwifox_theme_default_summary),
+                swatch = null,
+                onClick = { onSelect(null) },
+                trailing = { RadioButton(selected = selected == null, onClick = { onSelect(null) }) },
+            )
+        }
+        items(themes, key = { it.id }) { theme ->
+            ThemeRow(
+                name = theme.name,
+                subtitle = if (theme.builtIn) stringResource(R.string.kiwifox_theme_bundled) else theme.source,
+                swatch = theme,
+                onClick = { onSelect(theme) },
+                trailing = {
+                    if (!theme.builtIn) {
+                        IconButton(onClick = { onDelete(theme) }) {
+                            Text("✕", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    RadioButton(selected = selected?.id == theme.id, onClick = { onSelect(theme) })
+                },
+            )
         }
 
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { showUrlDialog = true }, enabled = !busy) {
+        item {
+            Row(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                OutlinedButton(onClick = { showUrlDialog = true }, enabled = !busy) {
                     Text(stringResource(R.string.kiwifox_import_link))
                 }
                 OutlinedButton(onClick = onImportFile, enabled = !busy) {
                     Text(stringResource(R.string.kiwifox_import_file))
                 }
-                if (busy) {
-                    Spacer(Modifier.width(8.dp))
-                    CircularProgressIndicator(modifier = Modifier.size(24.dp).align(Alignment.CenterVertically))
-                }
+                if (busy) CircularProgressIndicator(modifier = Modifier.size(24.dp))
             }
-            Spacer(Modifier.height(8.dp))
+            if (status != null) {
+                Text(
+                    text = status,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+            }
             Text(
                 text = stringResource(R.string.kiwifox_import_hint),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
-            if (status != null) {
-                Spacer(Modifier.height(8.dp))
-                Text(text = status, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+        }
+
+        item { SectionHeader(stringResource(R.string.kiwifox_section_catalog)) }
+        item {
+            Text(
+                text = stringResource(R.string.kiwifox_catalog_summary),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+        }
+        items(ThemeCatalog.ENTRIES, key = { it.repoUrl }) { entry ->
+            val installed = entry.repoUrl in installedSources
+            Column {
+                ThemeRow(
+                    name = entry.name,
+                    subtitle = "${entry.author} · ★ ${entry.stars} · ${entry.description}",
+                    swatch = null,
+                    onClick = { if (!installed && catalogBusy == null) onAddCatalog(entry) },
+                    trailing = {
+                        when {
+                            catalogBusy == entry.repoUrl -> CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                            installed -> Text(
+                                text = stringResource(R.string.kiwifox_installed),
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            else -> TextButton(onClick = { onAddCatalog(entry) }, enabled = catalogBusy == null) {
+                                Text(stringResource(R.string.kiwifox_add))
+                            }
+                        }
+                    },
+                )
+                catalogStatus[entry.repoUrl]?.let { message ->
+                    Text(
+                        text = message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(start = 72.dp, end = 16.dp, bottom = 8.dp),
+                    )
+                }
             }
         }
+        item { Spacer(Modifier.height(24.dp)) }
     }
 
     if (showUrlDialog) {
@@ -233,14 +326,24 @@ private fun KiwiThemesScreen(
 }
 
 @Composable
-@Suppress("LongParameterList")
+private fun SectionHeader(title: String) {
+    Text(
+        text = title,
+        style = MaterialTheme.typography.titleSmall,
+        fontWeight = FontWeight.Bold,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp),
+    )
+}
+
+/** One list row in the add-ons manager layout: avatar, title + summary, trailing control. */
+@Composable
 private fun ThemeRow(
     name: String,
     subtitle: String,
-    selected: Boolean,
     swatch: KiwiTheme?,
     onClick: () -> Unit,
-    onDelete: (() -> Unit)?,
+    trailing: @Composable () -> Unit,
 ) {
     Row(
         modifier = Modifier
@@ -249,47 +352,66 @@ private fun ThemeRow(
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        RadioButton(selected = selected, onClick = onClick)
-        Column(modifier = Modifier.weight(1f).padding(start = 8.dp)) {
+        Avatar(swatch)
+        Column(modifier = Modifier.weight(1f).padding(start = 16.dp, end = 8.dp)) {
             Text(text = name, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
-            Text(text = subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+            )
         }
-        if (swatch != null) {
-            Swatch(swatch, darkMode = false)
-            Spacer(Modifier.width(6.dp))
-            Swatch(swatch, darkMode = true)
-        }
-        if (onDelete != null) {
-            IconButton(onClick = onDelete) {
-                Text("✕", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        trailing()
+    }
+}
+
+/** A round icon like the add-on icons: the theme's light bar on top, dark bar below, address field in the middle. */
+@Composable
+private fun Avatar(theme: KiwiTheme?) {
+    val outline = MaterialTheme.colorScheme.outlineVariant
+    Box(
+        modifier = Modifier
+            .size(40.dp)
+            .border(1.dp, outline, CircleShape)
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh, CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (theme == null) {
+            Text("Aa", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } else {
+            val (lightBar, lightField, lightText) = theme.preview(darkMode = false)
+            val (darkBar, darkField, darkText) = theme.preview(darkMode = true)
+            Column(
+                modifier = Modifier.size(width = 30.dp, height = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                MiniBar(lightBar, lightField, lightText)
+                MiniBar(darkBar, darkField, darkText)
             }
         }
     }
 }
 
-/** A miniature toolbar: the bar with the address field and a text stroke on it. */
 @Composable
-private fun Swatch(theme: KiwiTheme, darkMode: Boolean) {
-    val (bar, field, text) = theme.preview(darkMode)
-    val outline = MaterialTheme.colorScheme.outlineVariant
+private fun MiniBar(bar: Color?, field: Color?, text: Color?) {
     Box(
         modifier = Modifier
-            .size(width = 44.dp, height = 28.dp)
-            .border(1.dp, outline, RoundedCornerShape(4.dp))
-            .background(bar ?: Color.Transparent, RoundedCornerShape(4.dp)),
+            .size(width = 30.dp, height = 11.dp)
+            .background(bar ?: Color.Transparent, RoundedCornerShape(3.dp)),
         contentAlignment = Alignment.Center,
     ) {
         Box(
             modifier = Modifier
-                .size(width = 32.dp, height = 14.dp)
-                .background(field ?: Color.Transparent, RoundedCornerShape(7.dp)),
+                .size(width = 22.dp, height = 6.dp)
+                .background(field ?: Color.Transparent, RoundedCornerShape(3.dp)),
             contentAlignment = Alignment.CenterStart,
         ) {
             Box(
                 modifier = Modifier
-                    .padding(start = 5.dp)
-                    .size(width = 14.dp, height = 3.dp)
-                    .background(text ?: Color.Transparent, RoundedCornerShape(2.dp)),
+                    .padding(start = 3.dp)
+                    .size(width = 10.dp, height = 2.dp)
+                    .background(text ?: Color.Transparent, RoundedCornerShape(1.dp)),
             )
         }
     }
