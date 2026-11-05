@@ -1,0 +1,38 @@
+{
+  "_source": "Kiwi Browser on the user's phone, 2026-11-04: Android dynamic color (Material You, green wallpaper palette), sampled from screenshots. Light values estimated from the same tonal palette.",
+  "name": "Kiwi (Material You green)",
+  "light": {
+    "background": "#F3FAF4",
+    "surface": "#F3FAF4",
+    "surfaceBright": "#F3FAF4",
+    "surfaceContainer": "#F3FAF4",
+    "surfaceContainerLow": "#F3FAF4",
+    "surfaceContainerLowest": "#F3FAF4",
+    "surfaceContainerHigh": "#DCE9DF",
+    "surfaceContainerHighest": "#DCE9DF",
+    "onBackground": "#0C1F18",
+    "onSurface": "#0C1F18",
+    "onSurfaceVariant": "#0C1F18",
+    "primary": "#2E6B4F",
+    "onPrimary": "#FFFFFF",
+    "tertiary": "#2E6B4F",
+    "onTertiary": "#FFFFFF"
+  },
+  "dark": {
+    "background": "#0C1F18",
+    "surface": "#0C1F18",
+    "surfaceBright": "#0C1F18",
+    "surfaceContainer": "#0C1F18",
+    "surfaceContainerLow": "#0C1F18",
+    "surfaceContainerLowest": "#0C1F18",
+    "surfaceContainerHigh": "#1B3429",
+    "surfaceContainerHighest": "#1B3429",
+    "onBackground": "#D2E8DC",
+    "onSurface": "#D2E8DC",
+    "onSurfaceVariant": "#D2E8DC",
+    "primary": "#92D5AB",
+    "onPrimary": "#0C1F18",
+    "tertiary": "#92D5AB",
+    "onTertiary": "#0C1F18"
+  }
+}
