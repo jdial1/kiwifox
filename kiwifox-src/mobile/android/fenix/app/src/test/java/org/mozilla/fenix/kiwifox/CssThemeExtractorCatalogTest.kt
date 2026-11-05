@@ -8,7 +8,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.mozilla.fenix.helpers.FenixRobolectricTestRunner
+import org.robolectric.RobolectricTestRunner
 import java.io.File
 
 /**
@@ -17,7 +17,7 @@ import java.io.File
  * and is skipped when the variable is unset. Files are read in the same order as
  * [ThemeImporter] reads them from GitHub (userChrome.css first, then by path, 40 at most).
  */
-@RunWith(FenixRobolectricTestRunner::class)
+@RunWith(RobolectricTestRunner::class)
 class CssThemeExtractorCatalogTest {
 
     @Test
