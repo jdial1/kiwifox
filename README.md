@@ -145,3 +145,30 @@ F:\mozilla-state\android-sdk-windows\cmdline-tools\23.0\bin\android.exe sdk inst
 
 (Versions come from `python/mozboot/mozboot/android-packages.txt` in the
 Firefox tree; check them when the tag changes.)
+
+## Fast iteration (measured 2026-11-04, 12 threads, 24 GB)
+
+| Step | Time |
+|---|---|
+| Release build after a Kotlin change (`build.sh`: R8 + lintVital + package) | 3-6 min |
+| First debug build (`dev.sh`, one-time: every module's debug variant) | 7 min 54 s |
+| Debug build after a one-file change (`dev.sh`) | 33 s |
+
+Loop for code changes: edit under `kiwifox-src/`, then
+
+```
+bash sync-src.sh                      # copy kiwifox-src + theme JSON over the applied tree
+run-mach.cmd F:\kiwifox\dev.sh        # fenix:assembleDebug, installs + launches if adb sees a phone
+```
+
+What makes it fast: the Gradle daemon stays alive between runs, the configuration
+cache is reused, `org.gradle.caching=true` in `~/.gradle/gradle.properties` caches task
+outputs, the debug variant skips R8 and release lint, and `dev.sh` skips `mach build`
+(only needed when the mozconfig or GeckoView version changes). The debug APK is a
+separate app (`org.mozilla.fenix.debug`), so it sits next to the release KiwiFox.
+
+Pair the phone once with Wireless debugging (Developer options), then
+`adb connect <phone-ip>:<port>`; `dev.sh` then installs straight over Wi-Fi instead of
+the WebDAV download. There is no true hot reload without Android Studio (Apply Changes /
+Compose Live Edit), but theme JSON, imported CSS and catalogue fetches are all runtime
+data and need no rebuild at all.
