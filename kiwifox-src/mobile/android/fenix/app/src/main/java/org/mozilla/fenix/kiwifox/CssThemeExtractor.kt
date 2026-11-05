@@ -11,10 +11,12 @@ import org.json.JSONObject
  * (r/FirefoxCSS style) into a desktop-style manifest that [ThemeConverter] then validates.
  *
  * It resolves `:root` custom properties through `var()` chains, `light-dark()` and
- * `@media (prefers-color-scheme)`, and trusts nothing else. It fails loudly when a role cannot
- * be resolved to a literal color: themes that consume Firefox's `--lwt-*` variables take their
- * colors from whichever AMO theme the user installed, and selectors keyed on browser state
- * (`[privatebrowsingmode]`, `[style*=...]`, `-moz-pref()`) cannot be evaluated here.
+ * `@media (prefers-color-scheme)`. Variables the theme does not set fall back to Firefox's own
+ * default (Proton) values in [FIREFOX_DEFAULTS], the same way desktop Firefox fills them in when
+ * the default theme is active, and CSS system color keywords map to those defaults too. Roles
+ * that end up entirely on defaults are reported in the notes so the user knows the theme only
+ * changes layout. Selectors keyed on browser state (`[privatebrowsingmode]`, `[style*=...]`,
+ * `-moz-pref()`) are still ignored: they cannot be evaluated here.
  */
 object CssThemeExtractor {
     private val ROLES: Map<String, List<String>> = linkedMapOf(
@@ -32,17 +34,63 @@ object CssThemeExtractor {
     private val SCHEME_QUERY = Regex("prefers-color-scheme\\s*:\\s*(light|dark)")
     private const val MAX_DEPTH = 12
 
+    /**
+     * Effective values of Firefox 159's default theme (Proton) for the variables the roles read.
+     * Light: toolbar #f9f9fb, tab bar #f0f0f4, text #15141a, field = 5% black over the toolbar.
+     * Dark: toolbar rgb(43,42,51), tab bar #1c1b22, text #fbfbfe, field = 30% black over the toolbar.
+     */
+    private val FIREFOX_DEFAULTS: Map<String, String> = linkedMapOf(
+        "--toolbar-bgcolor" to "light-dark(#f9f9fb, #2b2a33)",
+        "--toolbar-background-color" to "light-dark(#f9f9fb, #2b2a33)",
+        "--toolbox-bgcolor" to "light-dark(#f0f0f4, #1c1b22)",
+        "--lwt-accent-color" to "light-dark(#f0f0f4, #1c1b22)",
+        "--toolbar-color" to "light-dark(#15141a, #fbfbfe)",
+        "--lwt-text-color" to "light-dark(#15141a, #fbfbfe)",
+        "--toolbar-field-background-color" to "light-dark(rgba(0, 0, 0, 0.05), rgba(0, 0, 0, 0.3))",
+        "--lwt-toolbar-field-background-color" to "light-dark(rgba(0, 0, 0, 0.05), rgba(0, 0, 0, 0.3))",
+        "--urlbar-box-bgcolor" to "light-dark(rgba(0, 0, 0, 0.05), rgba(0, 0, 0, 0.3))",
+        "--toolbar-field-color" to "light-dark(#15141a, #fbfbfe)",
+        "--urlbar-box-text-color" to "light-dark(#15141a, #fbfbfe)",
+    )
+
+    /** CSS system colors, as Firefox's default theme renders them (lowercase keyword -> light/dark). */
+    private val SYSTEM_COLORS: Map<String, Pair<String, String>> = mapOf(
+        "window" to ("#f9f9fb" to "#2b2a33"),
+        "canvas" to ("#f9f9fb" to "#2b2a33"),
+        "-moz-dialog" to ("#f9f9fb" to "#2b2a33"),
+        "menu" to ("#f9f9fb" to "#2b2a33"),
+        "buttonface" to ("#f0f0f4" to "#2b2a33"),
+        "activecaption" to ("#f0f0f4" to "#1c1b22"),
+        "inactivecaption" to ("#f0f0f4" to "#1c1b22"),
+        "field" to ("#ffffff" to "#42414d"),
+        "windowtext" to ("#15141a" to "#fbfbfe"),
+        "canvastext" to ("#15141a" to "#fbfbfe"),
+        "fieldtext" to ("#15141a" to "#fbfbfe"),
+        "buttontext" to ("#15141a" to "#fbfbfe"),
+        "menutext" to ("#15141a" to "#fbfbfe"),
+        "-moz-dialogtext" to ("#15141a" to "#fbfbfe"),
+        "captiontext" to ("#15141a" to "#fbfbfe"),
+        "graytext" to ("#6d6d6e" to "#a0a0a4"),
+        "highlight" to ("#0060df" to "#00ddff"),
+        "highlighttext" to ("#ffffff" to "#15141a"),
+        "selecteditem" to ("#0060df" to "#00ddff"),
+        "selecteditemtext" to ("#ffffff" to "#15141a"),
+        "accentcolor" to ("#0060df" to "#00ddff"),
+        "accentcolortext" to ("#ffffff" to "#15141a"),
+        "linktext" to ("#0060df" to "#00ddff"),
+    )
+
     class Unresolved(message: String) : Exception(message)
 
     /** Builds a desktop manifest (light colors, plus `dark_theme` when a distinct dark palette resolves). */
     fun toManifest(css: String, name: String): Pair<JSONObject, List<String>> {
         val notes = ArrayList<String>()
         val light = try {
-            colorsFor(css, "light")
+            colorsFor(css, "light", notes)
         } catch (e: Unresolved) {
             throw ThemeImportException(
-                "userChrome.css theme: ${e.message}. Its toolbar colors come from Firefox's own variables, " +
-                    "an AMO theme, or browser state this importer cannot see. Import the matching AMO theme instead.",
+                "userChrome.css theme: ${e.message}. Its toolbar colors depend on browser state this importer " +
+                    "cannot see. Import the matching AMO theme instead.",
             )
         }
         val manifest = JSONObject()
@@ -51,7 +99,7 @@ object CssThemeExtractor {
         manifest.put("version", "1.0")
         manifest.put("theme", JSONObject().put("colors", JSONObject(light)))
         try {
-            val dark = colorsFor(css, "dark")
+            val dark = colorsFor(css, "dark", ArrayList())
             if (dark != light) manifest.put("dark_theme", JSONObject().put("colors", JSONObject(dark)))
         } catch (e: Unresolved) {
             notes.add("no separate dark palette resolved (${e.message}); light colors apply in both modes")
@@ -59,18 +107,32 @@ object CssThemeExtractor {
         return manifest to notes
     }
 
-    private fun colorsFor(css: String, scheme: String): Map<String, String> {
-        val variables = collect(css, scheme)
+    private fun colorsFor(css: String, scheme: String, notes: MutableList<String>): Map<String, String> {
+        val themeVariables = collect(css, scheme)
+        val withDefaults = LinkedHashMap(FIREFOX_DEFAULTS).apply { putAll(themeVariables) }
         val out = LinkedHashMap<String, String>()
+        val defaulted = ArrayList<String>()
         for ((key, names) in ROLES) {
-            var found: String? = null
-            for (name in names) {
-                found = runCatching { resolve(name, variables, scheme, 0) }.getOrNull()
-                if (found != null) break
+            // First the theme on its own; then the theme on top of Firefox's defaults, as on desktop.
+            var found = names.firstNotNullOfOrNull { name -> runCatching { resolve(name, themeVariables, scheme, 0) }.getOrNull() }
+            if (found == null) {
+                found = names.firstNotNullOfOrNull { name -> runCatching { resolve(name, withDefaults, scheme, 0) }.getOrNull() }
+                if (found != null) defaulted.add(key)
             }
-            out[key] = found ?: throw Unresolved("$scheme: no literal value for $key via $names")
+            out[key] = systemColor(found ?: throw Unresolved("$scheme: no value for $key via $names"), scheme)
+        }
+        if (defaulted.size == ROLES.size) {
+            notes.add("this theme changes layout only: all toolbar colors are Firefox's defaults")
+        } else if (defaulted.isNotEmpty()) {
+            notes.add("Firefox default used for: ${defaulted.joinToString(", ")} (the theme does not set them)")
         }
         return out
+    }
+
+    /** Replaces a CSS system color keyword with the value Firefox's default theme gives it. */
+    private fun systemColor(value: String, scheme: String): String {
+        val mapped = SYSTEM_COLORS[value.lowercase()] ?: return value
+        return if (scheme == "light") mapped.first else mapped.second
     }
 
     private fun resolve(name: String, variables: Map<String, String>, scheme: String, depth: Int): String {
