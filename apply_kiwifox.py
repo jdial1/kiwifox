@@ -112,6 +112,16 @@ def write_overlays(root: Path) -> None:
         out = root / FENIX / "res" / folder / "kiwifox_overlays.xml"
         write(out, "\n".join(lines) + "\n")
         print(f"wrote   res/{folder}/kiwifox_overlays.xml")
+    # The overlays are looked up by name at runtime, so the resource shrinker must not strip them.
+    keep = root / FENIX / "res/raw/kiwifox_keep.xml"
+    keep.parent.mkdir(parents=True, exist_ok=True)
+    write(
+        keep,
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        '<resources xmlns:tools="http://schemas.android.com/tools"\n'
+        '    tools:keep="@style/KiwiFoxOverlay_*,@color/kiwifox_*" />\n',
+    )
+    print("wrote   res/raw/kiwifox_keep.xml")
 
 
 def copy_sources(root: Path) -> None:
