@@ -1,31 +1,46 @@
-# KiwiFox theme pipeline
+# KiwiFox
 
-Builds Firefox for Android from each stable release tag with an injected
-toolbar theme. No LTS/ESR channel exists for Android, so stable is the target.
+Firefox for Android built from each stable release tag with **runtime toolbar
+themes**: a picker under Settings > Customize > Toolbar themes, bundled themes,
+and an importer that takes links (addons.mozilla.org themes, r/FirefoxCSS Reddit
+posts, GitHub repos) or files (.xpi/.zip/manifest.json/userChrome.css). No
+LTS/ESR channel exists for Android, so stable is the target.
 
 ```
-import_theme.py  desktop theme (.xpi/.zip/manifest.json)  ->  theme/<name>.json
-inject_theme.py  theme JSON + app.json  ->  patched Firefox source tree
-build.yml        daily: new FIREFOX_*_RELEASE tag -> inject -> build -> sign -> GitHub release
+apply_kiwifox.py  Firefox tree + app.json  ->  KiwiFox sources, bundled theme assets, anchored edits
+kiwifox-src/      the Kotlin added to Fenix (org.mozilla.fenix.kiwifox) + FirefoxTheme hook
+theme/*.json      bundled themes (copied to assets/kiwifox/themes/)
+import_theme.py   desktop theme -> theme JSON, for adding bundled themes (same rules as the in-app importer)
+build.yml         daily: new FIREFOX_*_RELEASE tag -> apply -> build -> sign -> GitHub release
 ```
-
-Run the importer locally, commit the JSON, set `THEME:` in `build.yml`.
 
 ## Quick start (local test build)
 
 ```
-./local_build.sh FIREFOX_159_0_1_RELEASE theme/cascade.json
-adb install -r kiwifox-FIREFOX_159_0_1_RELEASE-cascade.apk
+./local_build.sh FIREFOX_159_0_1_RELEASE
+adb install -r kiwifox-FIREFOX_159_0_1_RELEASE.apk
 ```
 
-One theme per APK. Bundled, verified themes: `theme/kiwi.json`,
-`theme/cascade.json` (Rosé Pine), `theme/materialfox.json` (light only),
-`theme/alpenglow.json`. `themes-desktop/*.zip` are the same themes as desktop
-static themes, installable on desktop Firefox and re-importable here.
+Bundled themes: `theme/kiwi.json`, `theme/cascade.json` (Rosé Pine),
+`theme/materialfox.json` (light only), `theme/alpenglow.json`.
+`themes-desktop/*.zip` are the same themes as desktop static themes.
 
-In-app switching is not built: it needs a runtime loader in
-`FirefoxTheme.kt`, a settings entry, and the theme JSONs as assets. That is
-Kotlin work that must be compiled to be trusted.
+## How the runtime theme works
+
+* `KiwiThemeManager` loads bundled (assets) and imported (`filesDir/kiwifox/themes`)
+  themes and keeps the selection in the `kiwifox` SharedPreferences as Compose state.
+* `FirefoxTheme.kt` (Fenix's root theme) applies the selected theme's Material
+  roles to the light and dark color schemes; the Compose toolbar reads those
+  roles (`surface`, `surfaceContainerHighest`, `onSurface`, ...). Switching is
+  instant. Private mode keeps Firefox's purple.
+* `ThemeImporter` resolves a link to a manifest or CSS, `ThemeConverter` is a
+  Kotlin port of `import_theme.py` (same desktop rules and contrast checks),
+  `CssThemeExtractor` a port of `tools/css_theme_colors.py` (strict `:root`
+  resolver). userChrome.css themes that depend on an AMO theme or browser state
+  are refused with the reason shown in the app.
+* Firefox Color share links are refused: their payload is LZMA-compressed; export
+  the theme from Firefox Color and import the file.
+* `inject_theme.py` is the old one-theme-per-APK injector, kept for reference.
 
 ## What can be imported
 

@@ -9,10 +9,6 @@ on:
         description: "Firefox release tag (e.g. FIREFOX_159_0_1_RELEASE). Blank = latest."
         required: false
 
-env:
-  # Theme JSON to build with. Create new ones locally with import_theme.py and commit them.
-  THEME: theme/kiwi.json
-
 permissions:
   contents: write
 
@@ -46,9 +42,9 @@ jobs:
         if: steps.tag.outputs.skip != 'true'
         run: git clone --depth 1 -b "${{ steps.tag.outputs.tag }}" https://github.com/mozilla-firefox/firefox firefox
 
-      - name: Inject theme
+      - name: Apply KiwiFox
         if: steps.tag.outputs.skip != 'true'
-        run: python3 inject_theme.py firefox "$THEME" app.json
+        run: python3 apply_kiwifox.py firefox app.json
 
       - name: Build
         if: steps.tag.outputs.skip != 'true'
@@ -80,4 +76,5 @@ jobs:
         if: steps.tag.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${{ steps.tag.outputs.tag }}" kiwifox-*.apk --title "KiwiFox ${{ steps.tag.outputs.tag }}" --notes "Firefox ${{ steps.tag.outputs.tag }} + $THEME"
+        run: gh release create "${{ steps.tag.outputs.tag }}" kiwifox-*.apk --title "KiwiFox ${{ steps.tag.outputs.tag }}" --notes "Firefox ${{ steps.tag.outputs.tag }} with KiwiFox runtime themes (bundled: $(ls theme | sed s/.json// | tr '
+' ' '))"
