@@ -102,7 +102,7 @@ object KiwiThemeManager {
 
     /** Style name of a bundled theme's overlay: `KiwiFoxOverlay_<file name>` with non-alphanumerics as `_`. */
     fun overlayName(theme: KiwiTheme): String =
-        "KiwiFoxOverlay_" + theme.id.removePrefix("bundled-").replace(Regex("[^A-Za-z0-9]"), "_")
+        "KiwiFoxOverlay_" + theme.id.removePrefix("bundled-").replace(Regex("[^A-Za-z0-9]"), "_").lowercase()
 
     /**
      * Tints the parts of the activity chrome that are XML, not Compose: the settings screens' top app
