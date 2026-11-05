@@ -67,7 +67,10 @@ data class KiwiTheme(
 
         fun fromJson(id: String, text: String, builtIn: Boolean, fallbackName: String): KiwiTheme {
             val json = JSONObject(text)
-            val name = json.optString("name").ifBlank { json.optString("_source").ifBlank { fallbackName } }
+            // Bundled files carry provenance in `_source`, not a display name: use the file name for those.
+            val name = json.optString("name").ifBlank {
+                if (builtIn) fallbackName.replaceFirstChar { it.uppercase() } else json.optString("_source").ifBlank { fallbackName }
+            }
             return KiwiTheme(
                 id = id,
                 name = name,
