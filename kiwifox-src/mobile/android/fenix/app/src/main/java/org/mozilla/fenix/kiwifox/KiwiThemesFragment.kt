@@ -99,8 +99,14 @@ class KiwiThemesFragment : Fragment(), SystemInsetsPaddedFragment {
                         busy = busy,
                         catalogStatus = catalogStatus,
                         catalogBusy = catalogBusy,
-                        onSelect = { KiwiThemeManager.select(requireContext(), it) },
-                        onDelete = { KiwiThemeManager.delete(requireContext(), it) },
+                        onSelect = {
+                            KiwiThemeManager.select(requireContext(), it)
+                            KiwiThemeManager.applyToActivity(requireActivity())
+                        },
+                        onDelete = {
+                            KiwiThemeManager.delete(requireContext(), it)
+                            KiwiThemeManager.applyToActivity(requireActivity())
+                        },
                         onAddCatalog = { entry -> addFromCatalog(entry) },
                         onImportUrl = { url -> runImport { ThemeImporter(requireComponents.core.client).importUrl(url) } },
                         onImportFile = { openDocument.launch(arrayOf("*/*")) },
@@ -130,6 +136,7 @@ class KiwiThemesFragment : Fragment(), SystemInsetsPaddedFragment {
                 onSuccess = { imported ->
                     val stored = KiwiThemeManager.saveImported(context, imported.theme.copy(name = entry.name))
                     KiwiThemeManager.select(context, stored)
+                    KiwiThemeManager.applyToActivity(requireActivity())
                     if (imported.notes.isNotEmpty()) catalogStatus[entry.repoUrl] = imported.notes.joinToString("\n")
                 },
                 onFailure = { e -> catalogStatus[entry.repoUrl] = e.message ?: e.javaClass.simpleName },
@@ -151,6 +158,7 @@ class KiwiThemesFragment : Fragment(), SystemInsetsPaddedFragment {
                 onSuccess = { imported ->
                     val stored = KiwiThemeManager.saveImported(context, imported.theme)
                     KiwiThemeManager.select(context, stored)
+                    KiwiThemeManager.applyToActivity(requireActivity())
                     status = buildString {
                         append(getString(R.string.kiwifox_import_done, stored.name))
                         imported.notes.forEach { append("\n• ").append(it) }

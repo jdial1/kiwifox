@@ -195,6 +195,9 @@ def patch_strings(text: str) -> str:
         "    <!-- KiwiFox: catalogue row actions -->\n"
         '    <string name="kiwifox_add">Add</string>\n'
         '    <string name="kiwifox_installed">Installed</string>\n'
+        "    <!-- KiwiFox: Customize > Toolbar switch for the Kiwi-style Home button -->\n"
+        '    <string name="kiwifox_home_button">Home button</string>\n'
+        '    <string name="kiwifox_home_button_summary">Show a Home button at the start of the toolbar, like Kiwi Browser</string>\n'
         "    <!-- KiwiFox: import status messages. %1$s is the theme name or the error -->\n"
         '    <string name="kiwifox_import_working">Importing…</string>\n'
         '    <string name="kiwifox_import_done">Imported and applied: %1$s</string>\n'
@@ -207,7 +210,8 @@ def patch_preference_keys(text: str) -> str:
     return insert_after(
         text,
         '    <string name="pref_key_light_theme" translatable="false">pref_key_light_theme</string>\n',
-        '    <string name="pref_key_kiwifox_themes" translatable="false">pref_key_kiwifox_themes</string>\n',
+        '    <string name="pref_key_kiwifox_themes" translatable="false">pref_key_kiwifox_themes</string>\n'
+        '    <string name="pref_key_kiwifox_home_button" translatable="false">pref_key_kiwifox_home_button</string>\n',
         "preference_keys.xml",
     )
 
@@ -216,12 +220,8 @@ def patch_import_flags_nimbus(text: str) -> str:
     """Bookmark import from file is a hidden feature in release Firefox; KiwiFox ships it on."""
     return replace_once(
         text,
-        "        description: If true, the import bookmarks feature will be enabled.
-        default: false
-",
-        "        description: If true, the import bookmarks feature will be enabled.
-        default: true
-",
+        "        description: If true, the import bookmarks feature will be enabled.\n        default: false\n",
+        "        description: If true, the import bookmarks feature will be enabled.\n        default: true\n",
         "nimbus.fml.yaml import-bookmarks",
     )
 
@@ -230,13 +230,70 @@ def patch_import_flags_settings(text: str) -> str:
     """Password import from file (CSV) likewise."""
     return replace_once(
         text,
-        "            key = appContext.getPreferenceKey(R.string.pref_key_enable_import_passwords),
-            default = false,
-",
-        "            key = appContext.getPreferenceKey(R.string.pref_key_enable_import_passwords),
-            default = true,
-",
+        "            key = appContext.getPreferenceKey(R.string.pref_key_enable_import_passwords),\n            default = false,\n",
+        "            key = appContext.getPreferenceKey(R.string.pref_key_enable_import_passwords),\n            default = true,\n",
         "Settings.kt importPasswordsFeatureFlagEnabled",
+    )
+
+
+def patch_home_activity(text: str) -> str:
+    """Tint the XML app bar and system bars from the selected theme."""
+    text = insert_after(
+        text,
+        "import org.mozilla.fenix.theme.ThemeManager\n",
+        "import org.mozilla.fenix.kiwifox.KiwiThemeManager\n",
+        "HomeActivity imports",
+    )
+    text = insert_after(
+        text,
+        "            isToolbarInflated = true\n",
+        "            KiwiThemeManager.applyToActivity(this)\n",
+        "HomeActivity toolbar inflate",
+    )
+    return insert_after(
+        text,
+        "    override fun onResume() {\n        super.onResume()\n",
+        "        KiwiThemeManager.applyToActivity(this)\n",
+        "HomeActivity onResume",
+    )
+
+
+def patch_home_button_settings(text: str) -> str:
+    """Kiwi Browser shows a Home button at the start of the toolbar; KiwiFox does too, switchable."""
+    return insert_after(
+        text,
+        "            default = { ShortcutType.NEW_TAB.value },\n            persistDefaultIfNotExists = true,\n        )\n",
+        "\n"
+        "    /** KiwiFox: show a Home button at the start of the toolbar, as Kiwi Browser does. */\n"
+        "    var kiwiHomeButton by\n"
+        "        booleanPreference(\n"
+        "            key = appContext.getPreferenceKey(R.string.pref_key_kiwifox_home_button),\n"
+        "            default = true,\n"
+        "        )\n",
+        "Settings.kt kiwiHomeButton",
+    )
+
+
+def patch_toolbar_middleware(text: str) -> str:
+    return insert_after(
+        text,
+        "        return listOf(\n                ToolbarActionConfig(ToolbarAction.Back) { isWideScreen },\n",
+        "                ToolbarActionConfig(ToolbarAction.Homepage) { settings.kiwiHomeButton },\n",
+        "BrowserToolbarMiddleware start actions",
+    )
+
+
+def patch_customization_toolbar_xml(text: str) -> str:
+    return insert_after(
+        text,
+        '            android:key="@string/pref_key_toolbar_bottom"\n            android:title="@string/preference_bottom_toolbar" />\n',
+        "        <androidx.preference.SwitchPreferenceCompat\n"
+        '            android:defaultValue="true"\n'
+        '            android:key="@string/pref_key_kiwifox_home_button"\n'
+        '            android:title="@string/kiwifox_home_button"\n'
+        '            android:summary="@string/kiwifox_home_button_summary"\n'
+        '            app:iconSpaceReserved="false" />\n',
+        "customization_preferences.xml toolbar category",
     )
 
 
@@ -271,8 +328,12 @@ def main() -> None:
         patch(root, f"{FENIX}/res/navigation/nav_graph.xml", patch_nav_graph)
         patch(root, f"{FENIX}/res/values/strings.xml", patch_strings)
         patch(root, f"{FENIX}/res/values/preference_keys.xml", patch_preference_keys)
+        patch(root, f"{FENIX}/java/org/mozilla/fenix/HomeActivity.kt", patch_home_activity)
+        patch(root, f"{FENIX}/java/org/mozilla/fenix/components/toolbar/BrowserToolbarMiddleware.kt", patch_toolbar_middleware)
+        patch(root, f"{FENIX}/res/xml/customization_preferences.xml", patch_customization_toolbar_xml)
         patch(root, "mobile/android/fenix/app/nimbus.fml.yaml", patch_import_flags_nimbus)
         patch(root, f"{FENIX}/java/org/mozilla/fenix/utils/Settings.kt", patch_import_flags_settings)
+        patch(root, f"{FENIX}/java/org/mozilla/fenix/utils/Settings.kt", patch_home_button_settings)
         patch(root, "mobile/android/fenix/app/build.gradle", lambda t: patch_app_identity(t, app))
     except AnchorMissing as e:
         sys.exit(f"APPLY FAILED: {e}")

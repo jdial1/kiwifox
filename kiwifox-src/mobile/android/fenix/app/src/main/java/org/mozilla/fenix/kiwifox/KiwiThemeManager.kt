@@ -4,7 +4,15 @@
 
 package org.mozilla.fenix.kiwifox
 
+import android.app.Activity
 import android.content.Context
+import android.content.res.Configuration
+import androidx.appcompat.widget.Toolbar
+import androidx.core.graphics.ColorUtils
+import androidx.core.view.WindowCompat
+import mozilla.components.support.ktx.android.content.getColorFromAttr
+import org.mozilla.fenix.R
+import com.google.android.material.R as materialR
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -75,6 +83,38 @@ object KiwiThemeManager {
         File(importDir(context), "${theme.id}.json").delete()
         if (current?.id == theme.id) select(context, null)
         reload(context)
+    }
+
+    /**
+     * Tints the parts of the activity chrome that are XML, not Compose: the settings screens' top app
+     * bar and the status and navigation bars. With no theme selected, Firefox's own theme attributes
+     * are restored. Call after the toolbar is inflated, on resume, and whenever the selection changes.
+     */
+    fun applyToActivity(activity: Activity) {
+        ensureLoaded(activity)
+        val dark = (activity.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+            Configuration.UI_MODE_NIGHT_YES
+        val roles = current?.let { if (dark) it.dark else it.light }
+        val surface = roles?.get("surface") ?: activity.getColorFromAttr(materialR.attr.colorSurface)
+        val onSurface = roles?.get("onSurface") ?: activity.getColorFromAttr(materialR.attr.colorOnSurface)
+
+        activity.findViewById<Toolbar>(R.id.navigationToolbar)?.let { bar ->
+            bar.setBackgroundColor(surface)
+            bar.setTitleTextColor(onSurface)
+            bar.navigationIcon?.setTint(onSurface)
+            bar.overflowIcon?.setTint(onSurface)
+        }
+
+        val window = activity.window
+        @Suppress("DEPRECATION")
+        window.statusBarColor = surface
+        @Suppress("DEPRECATION")
+        window.navigationBarColor = surface
+        val light = ColorUtils.calculateLuminance(surface) > 0.5
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = light
+            isAppearanceLightNavigationBars = light
+        }
     }
 
     private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
