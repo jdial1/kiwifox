@@ -86,6 +86,25 @@ object KiwiThemeManager {
     }
 
     /**
+     * Applies the static theme overlay generated for a bundled theme (see apply_kiwifox.py), so XML
+     * screens such as Settings take the theme's colors. Must run before the activity inflates views;
+     * imported themes have no overlay and keep Firefox's XML colors. Returns true when applied.
+     */
+    fun applyOverlay(activity: Activity): Boolean {
+        ensureLoaded(activity)
+        val theme = current ?: return false
+        if (!theme.builtIn) return false
+        val resId = activity.resources.getIdentifier(overlayName(theme), "style", activity.packageName)
+        if (resId == 0) return false
+        activity.theme.applyStyle(resId, true)
+        return true
+    }
+
+    /** Style name of a bundled theme's overlay: `KiwiFoxOverlay_<file name>` with non-alphanumerics as `_`. */
+    fun overlayName(theme: KiwiTheme): String =
+        "KiwiFoxOverlay_" + theme.id.removePrefix("bundled-").replace(Regex("[^A-Za-z0-9]"), "_")
+
+    /**
      * Tints the parts of the activity chrome that are XML, not Compose: the settings screens' top app
      * bar and the status and navigation bars. With no theme selected, Firefox's own theme attributes
      * are restored. Call after the toolbar is inflated, on resume, and whenever the selection changes.

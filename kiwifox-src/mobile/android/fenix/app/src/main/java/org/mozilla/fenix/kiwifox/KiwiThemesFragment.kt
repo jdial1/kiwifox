@@ -100,8 +100,12 @@ class KiwiThemesFragment : Fragment(), SystemInsetsPaddedFragment {
                         catalogStatus = catalogStatus,
                         catalogBusy = catalogBusy,
                         onSelect = {
+                            val before = KiwiThemeManager.current
                             KiwiThemeManager.select(requireContext(), it)
                             KiwiThemeManager.applyToActivity(requireActivity())
+                            // Bundled themes restyle the XML screens through a theme overlay, which only
+                            // takes effect on a fresh activity.
+                            if (before?.builtIn == true || it?.builtIn == true) requireActivity().recreate()
                         },
                         onDelete = {
                             KiwiThemeManager.delete(requireContext(), it)
