@@ -11,12 +11,13 @@ import org.json.JSONObject
  * (r/FirefoxCSS style) into a desktop-style manifest that [ThemeConverter] then validates.
  *
  * It resolves `:root` custom properties through `var()` chains, `light-dark()` and
- * `@media (prefers-color-scheme)`. Variables the theme does not set fall back to Firefox's own
- * default (Proton) values in [FIREFOX_DEFAULTS], the same way desktop Firefox fills them in when
- * the default theme is active, and CSS system color keywords map to those defaults too. Roles
- * that end up entirely on defaults are reported in the notes so the user knows the theme only
- * changes layout. Selectors keyed on browser state (`[privatebrowsingmode]`, `[style*=...]`,
- * `-moz-pref()`) are still ignored: they cannot be evaluated here.
+ * `@media (prefers-color-scheme)`. The browser state it assumes is desktop Firefox on Windows
+ * with the default theme and no special prefs: `-moz-platform: windows` queries are true, GTK
+ * and macOS queries false, `:root:not([lwtheme])`-style selectors match. Variables the theme
+ * does not set, or sets to something that cannot be evaluated, fall back to Firefox's own
+ * default (Proton) values in [FIREFOX_DEFAULTS], as desktop does for an invalid declaration;
+ * CSS system color keywords map to those defaults too. Roles that end up on defaults are
+ * reported in the notes.
  */
 object CssThemeExtractor {
     private val ROLES: Map<String, List<String>> = linkedMapOf(
@@ -27,11 +28,15 @@ object CssThemeExtractor {
             "--toolbar-color", "--lwt-text-color",
         ),
     )
-    private val LITERAL = Regex("^(#[0-9a-fA-F]{3,8}|rgba?\\([^)]*\\)|hsla?\\([^)]*\\)|[a-zA-Z]+)$")
-    private val ROOT_SELECTOR = Regex("^(:root|\\*|html|body)(:not\\([^)]*\\))*$")
+    private val LITERAL = Regex("^(#[0-9a-fA-F]{3,8}|rgba?\\([^()]*\\)|hsla?\\([^()]*\\)|[a-zA-Z-]+)$")
+    private val NOT_A_COLOR = setOf("inherit", "initial", "unset", "revert", "revert-layer", "currentcolor", "none", "auto")
+
+    /** `:root`, optionally followed by negations only: `:not(...)` or `:is(:not(...), :not(...))`. */
+    private val ROOT_SELECTOR = Regex("^(:root|\\*|html|body)(:not\\([^()]*\\)|:is\\((\\s*:not\\([^()]*\\)\\s*,?)+\\s*\\))*$")
     private val LIGHT_DARK = Regex("^light-dark\\(\\s*(.+?)\\s*,\\s*(.+)\\)$")
     private val VAR = Regex("^var\\(\\s*(--[\\w-]+)\\s*(?:,\\s*(.+))?\\)$")
     private val SCHEME_QUERY = Regex("prefers-color-scheme\\s*:\\s*(light|dark)")
+    private val PLATFORM_QUERY = Regex("-moz-platform\\s*:\\s*([a-z]+)")
     private const val MAX_DEPTH = 12
 
     /**
@@ -50,6 +55,7 @@ object CssThemeExtractor {
         "--lwt-toolbar-field-background-color" to "light-dark(rgba(0, 0, 0, 0.05), rgba(0, 0, 0, 0.3))",
         "--urlbar-box-bgcolor" to "light-dark(rgba(0, 0, 0, 0.05), rgba(0, 0, 0, 0.3))",
         "--toolbar-field-color" to "light-dark(#15141a, #fbfbfe)",
+        "--toolbar-field-text-color" to "light-dark(#15141a, #fbfbfe)",
         "--urlbar-box-text-color" to "light-dark(#15141a, #fbfbfe)",
     )
 
@@ -77,7 +83,10 @@ object CssThemeExtractor {
         "selecteditemtext" to ("#ffffff" to "#15141a"),
         "accentcolor" to ("#0060df" to "#00ddff"),
         "accentcolortext" to ("#ffffff" to "#15141a"),
+        "-moz-accent-color" to ("#0060df" to "#00ddff"),
+        "-moz-accent-color-foreground" to ("#ffffff" to "#15141a"),
         "linktext" to ("#0060df" to "#00ddff"),
+        "threedshadow" to ("#a0a0a0" to "#5b5b66"),
     )
 
     class Unresolved(message: String) : Exception(message)
@@ -113,12 +122,24 @@ object CssThemeExtractor {
         val out = LinkedHashMap<String, String>()
         val defaulted = ArrayList<String>()
         for ((key, names) in ROLES) {
-            // First the theme on its own; then the theme on top of Firefox's defaults, as on desktop.
-            var found = names.firstNotNullOfOrNull { name -> runCatching { resolve(name, themeVariables, scheme, 0) }.getOrNull() }
-            if (found == null) {
-                found = names.firstNotNullOfOrNull { name -> runCatching { resolve(name, withDefaults, scheme, 0) }.getOrNull() }
-                if (found != null) defaulted.add(key)
+            var found: String? = null
+            var fromDefault = false
+            for (name in names) {
+                // The theme on top of Firefox's defaults, as on desktop.
+                found = tryResolve(name, withDefaults, scheme)
+                if (found != null) {
+                    fromDefault = tryResolve(name, themeVariables, scheme) == null
+                    break
+                }
+                // The theme sets it to something unevaluable: desktop drops the declaration and uses its default.
+                val default = FIREFOX_DEFAULTS[name]
+                if (default != null) {
+                    found = tryResolveValue(default, withDefaults, scheme)
+                    fromDefault = true
+                    if (found != null) break
+                }
             }
+            if (fromDefault) defaulted.add(key)
             out[key] = systemColor(found ?: throw Unresolved("$scheme: no value for $key via $names"), scheme)
         }
         if (defaulted.size == ROLES.size) {
@@ -129,6 +150,12 @@ object CssThemeExtractor {
         return out
     }
 
+    private fun tryResolve(name: String, variables: Map<String, String>, scheme: String): String? =
+        runCatching { resolve(name, variables, scheme, 0) }.getOrNull()
+
+    private fun tryResolveValue(value: String, variables: Map<String, String>, scheme: String): String? =
+        runCatching { resolveValue(value, variables, scheme, 0) }.getOrNull()
+
     /** Replaces a CSS system color keyword with the value Firefox's default theme gives it. */
     private fun systemColor(value: String, scheme: String): String {
         val mapped = SYSTEM_COLORS[value.lowercase()] ?: return value
@@ -137,17 +164,24 @@ object CssThemeExtractor {
 
     private fun resolve(name: String, variables: Map<String, String>, scheme: String, depth: Int): String {
         if (depth > MAX_DEPTH) throw Unresolved(name)
-        var value = variables[name] ?: throw Unresolved(name)
+        val value = variables[name] ?: throw Unresolved(name)
+        return resolveValue(value, variables, scheme, depth)
+    }
+
+    private fun resolveValue(raw: String, variables: Map<String, String>, scheme: String, depth: Int): String {
+        if (depth > MAX_DEPTH) throw Unresolved(raw)
+        var value = raw.trim()
         LIGHT_DARK.matchEntire(value)?.let { m -> value = m.groupValues[if (scheme == "light") 1 else 2].trim() }
         VAR.matchEntire(value)?.let { m ->
             return try {
                 resolve(m.groupValues[1], variables, scheme, depth + 1)
             } catch (e: Unresolved) {
                 val fallback = m.groupValues[2].trim()
-                if (fallback.isNotEmpty() && LITERAL.matches(fallback)) fallback else throw e
+                if (fallback.isEmpty()) throw e
+                resolveValue(fallback, variables, scheme, depth + 1)
             }
         }
-        if (!LITERAL.matches(value)) throw Unresolved("$name = $value")
+        if (!LITERAL.matches(value) || value.lowercase() in NOT_A_COLOR) throw Unresolved("$raw = $value")
         return value
     }
 
@@ -165,9 +199,7 @@ object CssThemeExtractor {
             if (prelude.startsWith("@")) {
                 var nestedActive = active
                 if (prelude.lowercase().startsWith("@media")) {
-                    if (prelude.contains("-moz-pref(")) continue // depends on a user pref we cannot read
-                    val m = SCHEME_QUERY.find(prelude)
-                    nestedActive = active && (m == null || m.groupValues[1] == scheme)
+                    nestedActive = active && (mediaMatches(prelude, scheme) ?: continue)
                 }
                 walk(body, scheme, nestedActive, found)
             } else if (active) {
@@ -185,6 +217,23 @@ object CssThemeExtractor {
                 }
             }
         }
+    }
+
+    /**
+     * Evaluates a media query for the assumed browser state (desktop Firefox on Windows, default
+     * theme). Returns null when the query depends on a user pref and the block must be skipped.
+     */
+    @Suppress("ReturnCount")
+    private fun mediaMatches(prelude: String, scheme: String): Boolean? {
+        val q = prelude.lowercase()
+        if (q.contains("-moz-pref(")) return null
+        SCHEME_QUERY.find(q)?.let { if (it.groupValues[1] != scheme) return false }
+        PLATFORM_QUERY.find(q)?.let { if (it.groupValues[1] != "windows") return false }
+        if (q.contains("-moz-gtk") || q.contains("-moz-mac") || q.contains("-moz-overlay-scrollbars")) return false
+        if (q.contains("forced-colors") && !q.contains("forced-colors: none") && !q.contains("forced-colors:none")) return false
+        if (q.contains("prefers-contrast") && !q.contains("no-preference")) return false
+        if (q.contains("print")) return false
+        return true
     }
 
     private class Rule(val prelude: String, val body: String?)

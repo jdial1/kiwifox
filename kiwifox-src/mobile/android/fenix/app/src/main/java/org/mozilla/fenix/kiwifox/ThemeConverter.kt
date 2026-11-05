@@ -78,14 +78,17 @@ object ThemeConverter {
         if (dropped.isNotEmpty()) notes.add("dropped (no place on the Android toolbar): ${dropped.joinToString(", ")}")
         if ((themeObj.optJSONObject("images")?.length() ?: 0) > 0) notes.add("dropped: images (Android toolbar has no image layer)")
 
-        val light = schemeFromColors(colors)
-        val dark = if (darkColors != null && darkColors.length() > 0) schemeFromColors(darkColors) else light
+        val light = schemeFromColors(colors, notes, "light")
+        val dark = if (darkColors != null && darkColors.length() > 0) schemeFromColors(darkColors, notes, "dark") else light
         val name = manifest.optString("name").ifBlank { fallbackName }
         return Converted(KiwiTheme(id = "", name = name, source = name, light = light, dark = dark, builtIn = false), notes)
     }
 
-    /** Maps one desktop `colors` object onto Material roles. Throws when the result would be unreadable. */
-    fun schemeFromColors(colors: JSONObject): Map<String, Int> {
+    /**
+     * Maps one desktop `colors` object onto Material roles. When the theme's URL text would be
+     * unreadable on the field or the bar, black or white replaces it and [notes] says so.
+     */
+    fun schemeFromColors(colors: JSONObject, notes: MutableList<String> = ArrayList(), mode: String = ""): Map<String, Int> {
         fun get(key: String): Rgba? {
             if (!colors.has(key) || colors.isNull(key)) return null
             val value = colors.get(key)
@@ -98,11 +101,19 @@ object ThemeConverter {
         // Android has one bar where desktop has frame + toolbar: draw toolbar over frame, as desktop does.
         val bar = get("toolbar")?.over(frame) ?: frame
         val field = (get("toolbar_field") ?: DESKTOP_FIELD_FALLBACK).over(bar)
-        val fieldText = (get("toolbar_field_text") ?: BLACK).over(field)
+        val themeText = (get("toolbar_field_text") ?: BLACK).over(field)
 
         // The Android toolbar paints URL text and bar icons with one role (onSurface): both must be readable.
-        requireContrast("URL text on address field", fieldText, field, MIN_TEXT_CONTRAST)
-        requireContrast("toolbar icons on bar (use the URL text color)", fieldText, bar, MIN_ICON_CONTRAST)
+        val fieldText = if (contrast(themeText, field) >= MIN_TEXT_CONTRAST && contrast(themeText, bar) >= MIN_ICON_CONTRAST) {
+            themeText
+        } else {
+            val replacement = listOf(BLACK, WHITE).maxByOrNull { minOf(contrast(it, field), contrast(it, bar)) } ?: BLACK
+            notes.add(
+                "${if (mode.isEmpty()) "" else "$mode: "}URL text ${themeText.hex()} replaced with ${replacement.hex()}: " +
+                    "contrast ${"%.2f".format(contrast(themeText, field))}:1 on the address field is too low to read",
+            )
+            replacement
+        }
 
         val roles = LinkedHashMap<String, Int>()
         for (role in listOf("background", "surface", "surfaceBright", "surfaceContainer", "surfaceContainerLow", "surfaceContainerLowest")) {
@@ -125,15 +136,6 @@ object ThemeConverter {
         val hi = maxOf(la, lb)
         val lo = minOf(la, lb)
         return (hi + 0.05) / (lo + 0.05)
-    }
-
-    private fun requireContrast(label: String, fg: Rgba, bg: Rgba, minimum: Double) {
-        val ratio = contrast(fg, bg)
-        if (ratio < minimum) {
-            throw ThemeImportException(
-                "$label: contrast ${"%.2f".format(ratio)}:1 between ${fg.hex()} and ${bg.hex()} is below $minimum:1",
-            )
-        }
     }
 
     private val HEX = Regex("^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$")
