@@ -212,6 +212,34 @@ def patch_preference_keys(text: str) -> str:
     )
 
 
+def patch_import_flags_nimbus(text: str) -> str:
+    """Bookmark import from file is a hidden feature in release Firefox; KiwiFox ships it on."""
+    return replace_once(
+        text,
+        "        description: If true, the import bookmarks feature will be enabled.
+        default: false
+",
+        "        description: If true, the import bookmarks feature will be enabled.
+        default: true
+",
+        "nimbus.fml.yaml import-bookmarks",
+    )
+
+
+def patch_import_flags_settings(text: str) -> str:
+    """Password import from file (CSV) likewise."""
+    return replace_once(
+        text,
+        "            key = appContext.getPreferenceKey(R.string.pref_key_enable_import_passwords),
+            default = false,
+",
+        "            key = appContext.getPreferenceKey(R.string.pref_key_enable_import_passwords),
+            default = true,
+",
+        "Settings.kt importPasswordsFeatureFlagEnabled",
+    )
+
+
 def patch_app_identity(text: str, app: dict) -> str:
     start_anchor, end_anchor = "release releaseTemplate >> {", "benchmark releaseTemplate >> {"
     for anchor in (start_anchor, end_anchor):
@@ -243,6 +271,8 @@ def main() -> None:
         patch(root, f"{FENIX}/res/navigation/nav_graph.xml", patch_nav_graph)
         patch(root, f"{FENIX}/res/values/strings.xml", patch_strings)
         patch(root, f"{FENIX}/res/values/preference_keys.xml", patch_preference_keys)
+        patch(root, "mobile/android/fenix/app/nimbus.fml.yaml", patch_import_flags_nimbus)
+        patch(root, f"{FENIX}/java/org/mozilla/fenix/utils/Settings.kt", patch_import_flags_settings)
         patch(root, "mobile/android/fenix/app/build.gradle", lambda t: patch_app_identity(t, app))
     except AnchorMissing as e:
         sys.exit(f"APPLY FAILED: {e}")
