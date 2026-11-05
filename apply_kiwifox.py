@@ -10,6 +10,7 @@ instead of guessing. New files are copied from kiwifox-src/ and theme/*.json int
 Run on a pristine tree (local_build.sh does `git checkout -- .` first).
 """
 import json
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -248,6 +249,11 @@ def patch_strings(text: str) -> str:
         "    <!-- KiwiFox: Customize > Toolbar switch for the Kiwi-style Home button -->\n"
         '    <string name="kiwifox_home_button">Home button</string>\n'
         '    <string name="kiwifox_home_button_summary">Show a Home button at the start of the toolbar, like Kiwi Browser</string>\n'
+        "    <!-- KiwiFox: Settings section titles, mirroring Kiwi Browser -->\n"
+        '    <string name="kiwifox_category_basics">Basics</string>\n'
+        '    <string name="kiwifox_category_autofill">Autofill</string>\n'
+        '    <string name="kiwifox_category_appearance">Appearance</string>\n'
+        '    <string name="kiwifox_category_more">More</string>\n'
         "    <!-- KiwiFox: import status messages. %1$s is the theme name or the error -->\n"
         '    <string name="kiwifox_import_working">Importing…</string>\n'
         '    <string name="kiwifox_import_done">Imported and applied: %1$s</string>\n'
@@ -353,6 +359,53 @@ def patch_customization_toolbar_xml(text: str) -> str:
     )
 
 
+KIWI_GROUPS = [
+    # (category title string, [preference keys in order]) mirroring Kiwi Browser's Settings sections.
+    ("kiwifox_category_basics", ["pref_key_search_settings", "pref_key_home", "pref_key_make_default_browser"]),
+    ("kiwifox_category_autofill", ["pref_key_credit_cards", "pref_key_passwords", "pref_key_email_masks"]),
+    ("kiwifox_category_appearance", ["pref_key_accessibility", "pref_key_tabs", "pref_key_customize", "pref_key_language"]),
+]
+
+
+def patch_settings_groups(text: str) -> str:
+    """Split the General category into Kiwi's Basics / Autofill / Appearance; leftovers go to More."""
+    start_anchor = '    <androidx.preference.PreferenceCategory\n        android:title="@string/preferences_category_general"'
+    end_anchor = "    </androidx.preference.PreferenceCategory>\n"
+    if text.count(start_anchor) != 1:
+        raise AnchorMissing(f"preferences.xml: expected 1 General category, found {text.count(start_anchor)}")
+    start = text.index(start_anchor)
+    end = text.index(end_anchor, start) + len(end_anchor)
+    block = text[start:end]
+    header_end = block.index(">", len(start_anchor)) + 1
+    header_attrs = block[len("    <androidx.preference.PreferenceCategory"):header_end - 1]
+    body = block[header_end:block.rindex(end_anchor)]
+    elements = re.findall(r"\s*<[A-Za-z0-9_.]+(?:\s[^>]*?)?/>", body, flags=re.S)
+    if "".join(elements).strip() != body.strip():
+        raise AnchorMissing("preferences.xml: General category has nested or unexpected elements")
+    by_key = {}
+    order = []
+    for element in elements:
+        m = re.search(r'android:key="@string/([A-Za-z0-9_]+)"', element)
+        key = m.group(1) if m else f"_anon{len(order)}"
+        by_key[key] = element.strip("\n")
+        order.append(key)
+    used = set()
+    out = []
+    attrs_wo_title = re.sub(r'\s*android:title="[^"]*"', "", header_attrs)
+    def category(title_key, keys):
+        items = [by_key[k] for k in keys if k in by_key]
+        if not items:
+            return
+        used.update(k for k in keys if k in by_key)
+        out.append('    <androidx.preference.PreferenceCategory\n        android:title="@string/' + title_key + '"' + attrs_wo_title + ">\n")
+        out.extend(item + "\n" for item in items)
+        out.append(end_anchor + "\n")
+    for title_key, keys in KIWI_GROUPS:
+        category(title_key, keys)
+    category("kiwifox_category_more", [k for k in order if k not in used])
+    return text[:start] + "".join(out).rstrip("\n") + "\n" + text[end:]
+
+
 def patch_app_identity(text: str, app: dict) -> str:
     start_anchor, end_anchor = "release releaseTemplate >> {", "benchmark releaseTemplate >> {"
     for anchor in (start_anchor, end_anchor):
@@ -388,6 +441,7 @@ def main() -> None:
         patch(root, f"{FENIX}/java/org/mozilla/fenix/HomeActivity.kt", patch_home_activity)
         patch(root, f"{FENIX}/java/org/mozilla/fenix/components/toolbar/BrowserToolbarMiddleware.kt", patch_toolbar_middleware)
         patch(root, f"{FENIX}/res/xml/customization_preferences.xml", patch_customization_toolbar_xml)
+        patch(root, f"{FENIX}/res/xml/preferences.xml", patch_settings_groups)
         patch(root, "mobile/android/fenix/app/nimbus.fml.yaml", patch_import_flags_nimbus)
         patch(root, f"{FENIX}/java/org/mozilla/fenix/utils/Settings.kt", patch_import_flags_settings)
         patch(root, f"{FENIX}/java/org/mozilla/fenix/utils/Settings.kt", patch_home_button_settings)
