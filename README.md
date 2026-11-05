@@ -172,3 +172,18 @@ Pair the phone once with Wireless debugging (Developer options), then
 the WebDAV download. There is no true hot reload without Android Studio (Apply Changes /
 Compose Live Edit), but theme JSON, imported CSS and catalogue fetches are all runtime
 data and need no rebuild at all.
+
+## Catalogue conversion results (FIREFOX_159_0_1_RELEASE, 2026-11-04)
+
+`unit-test.sh` runs `CssThemeExtractorCatalogTest` over local clones of the ten
+repositories (`KIWIFOX_CATALOG_DIR`). All ten convert. The extractor assumes
+desktop Firefox on Windows with the default theme, falls back per variable to
+Firefox's Proton defaults, and corrects unreadable URL text to black or white:
+
+| Theme | Result |
+|---|---|
+| ArcWTF | own colors: white bar (light), #3F3F3F bar / #2B2B2B field (dark) |
+| Cascade (cascadefox) | own colors: #1E2021 bar and field, both modes |
+| MaterialFox | own light colors; dark palette unresolvable, light used, text corrected |
+| SimpleFox | own dark bar #201E21; field and text from Firefox defaults, text corrected |
+| Firefox-UI-Fix, GNOME theme, ShyFox, Mod-Blur, WaveFox, FF-ULTIMA | layout-only: Firefox default colors (what desktop shows with the default theme) |
