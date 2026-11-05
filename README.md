@@ -187,3 +187,15 @@ Firefox's Proton defaults, and corrects unreadable URL text to black or white:
 | MaterialFox | own light colors; dark palette unresolvable, light used, text corrected |
 | SimpleFox | own dark bar #201E21; field and text from Firefox defaults, text corrected |
 | Firefox-UI-Fix, GNOME theme, ShyFox, Mod-Blur, WaveFox, FF-ULTIMA | layout-only: Firefox default colors (what desktop shows with the default theme) |
+
+## Kiwi Browser parity (from screenshots of Kiwi on the user's phone, 2026-11-04)
+
+| Kiwi | KiwiFox | How |
+|---|---|---|
+| Toolbar at top: Home, address pill, +, tab count, menu | same | Firefox 159 defaults to top toolbar with the "+" shortcut; `kiwiHomeButton` adds Home at the start (`BrowserToolbarMiddleware`), switch under Customize > Toolbar |
+| Toolbar, status bar and address field in the Material You green | `theme/kiwi-green.json` | sampled: bar #0C1F18, field #1B3429, text #D2E8DC, accent #92D5AB |
+| Settings fully tinted (background, headers, values) | bundled themes only | `apply_kiwifox.py` generates `res/values{,-night}/kiwifox_overlays.xml`, one `KiwiFoxOverlay_<name>` style per bundled theme mapping Material/Fenix XML attrs to the theme roles; `KiwiThemeManager.applyOverlay` applies it in `HomeActivity.setupTheme`; changing the selection recreates the activity. Imported themes have no overlay: Compose UI (toolbar, menu, home) is themed, XML settings keep Firefox colors |
+| Top app bar + system bars tinted | all themes | `KiwiThemeManager.applyToActivity` (runtime, after toolbar inflate / onResume / selection) |
+| Settings sections Basics / Autofill / Appearance | same titles | `patch_settings_groups` regroups `preferences.xml`; leftovers under "More", then Privacy, Advanced, About |
+| Three-dot menu: top-anchored flat list with icon row | not matched | Firefox's menu is a Compose bottom sheet with grouped items; it takes the theme colors but keeps its own layout |
+| Section header text in accent green | not matched | Fenix's `PreferenceSectionHeader` uses `colorOnSurface`; changing it would also recolor stock Firefox |
