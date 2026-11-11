@@ -53,5 +53,6 @@
   "style": {
     "fieldRadius": -1,
     "cornerScale": 2
-  }
+  },
+  "converter": 4
 }

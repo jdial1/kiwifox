@@ -1,0 +1,95 @@
+{
+  "_source": "firefox-desktop",
+  "name": "Firefox (desktop)",
+  "light": {
+    "background": "#FAF7FF",
+    "surface": "#FAF7FF",
+    "surfaceBright": "#FAF7FF",
+    "surfaceContainer": "#FAF7FF",
+    "surfaceContainerLow": "#FAF7FF",
+    "surfaceContainerLowest": "#FAF7FF",
+    "surfaceContainerHigh": "#FEFDFF",
+    "surfaceContainerHighest": "#FEFDFF",
+    "onBackground": "#180E30",
+    "onSurface": "#180E30",
+    "onSurfaceVariant": "#180E30",
+    "primary": "#764EDD",
+    "tertiary": "#764EDD",
+    "fieldBorder": "#D6D5DA",
+    "ntpBackground": "#F7F6FB",
+    "ntpText": "#15141A",
+    "ntpCard": "#FFFFFF",
+    "popup": "#FFFFFF",
+    "popupText": "#15141A",
+    "popupHighlight": "#EFEFEF",
+    "popupHighlightText": "#15141A",
+    "fieldBorderFocus": "#764EDD",
+    "frame": "#F4EEFF",
+    "tabSelected": "#FFFFFF",
+    "tabText": "#180E30",
+    "tabBackgroundText": "#180E30",
+    "icons": "#75669F"
+  },
+  "dark": {
+    "background": "#231E30",
+    "surface": "#231E30",
+    "surfaceBright": "#231E30",
+    "surfaceContainer": "#231E30",
+    "surfaceContainerLow": "#231E30",
+    "surfaceContainerLowest": "#231E30",
+    "surfaceContainerHigh": "#1C1826",
+    "surfaceContainerHighest": "#1C1826",
+    "onBackground": "#E7E1F8",
+    "onSurface": "#E7E1F8",
+    "onSurfaceVariant": "#E7E1F8",
+    "primary": "#B89CFF",
+    "tertiary": "#B89CFF",
+    "fieldBorder": "#3D3C41",
+    "ntpBackground": "#131215",
+    "ntpText": "#FBFBFE",
+    "ntpCard": "#252428",
+    "popup": "#171519",
+    "popupText": "#FBFBFE",
+    "popupHighlight": "#272529",
+    "popupHighlightText": "#FBFBFE",
+    "fieldBorderFocus": "#B89CFF",
+    "frame": "#322B44",
+    "tabSelected": "#3D3550",
+    "tabText": "#F2F0F8",
+    "tabBackgroundText": "#F2F0F8",
+    "icons": "#E7E1F8"
+  },
+  "style": {
+    "fieldRadius": -1,
+    "fieldBorderWidth": 1
+  },
+  "converter": 4,
+  "header": {
+    "light": {
+      "toolbar": "#7FFFFFFF",
+      "field": "#B2FFFFFF",
+      "layers": [
+        {
+          "gradient": "90deg, #F4EEFF 30%, #FDEDE7 100%",
+          "alignment": "left top",
+          "tiling": "no-repeat",
+          "size": "auto",
+          "windowArea": true
+        }
+      ]
+    },
+    "dark": {
+      "toolbar": "#4C000000",
+      "field": "#33000000",
+      "layers": [
+        {
+          "gradient": "90deg, #322B44 30%, #472424 100%",
+          "alignment": "left top",
+          "tiling": "no-repeat",
+          "size": "auto",
+          "windowArea": true
+        }
+      ]
+    }
+  }
+}

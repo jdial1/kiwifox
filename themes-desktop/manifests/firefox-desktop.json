@@ -1,0 +1,82 @@
+{
+  "manifest_version": 2,
+  "name": "Firefox (desktop)",
+  "version": "1.0",
+  "_note": "Measured from desktop Firefox 159 on Windows with its default theme (tools/desktop_shots.py): the window-wide lavender-to-peach gradient behind a translucent toolbar, pill address field with a 1px border, focus ring, new tab page and popups.",
+  "theme": {
+    "colors": {
+      "frame": "#F4EEFF",
+      "toolbar": "rgba(255, 255, 255, 0.5)",
+      "toolbar_text": "#75669F",
+      "toolbar_field": "rgba(255, 255, 255, 0.7)",
+      "toolbar_field_text": "#180E30",
+      "toolbar_field_border": "#D6D5DA",
+      "toolbar_field_border_focus": "#764EDD",
+      "ntp_background": "#F7F6FB",
+      "ntp_text": "#15141A",
+      "ntp_card_background": "#FFFFFF",
+      "popup": "#FFFFFF",
+      "popup_text": "#15141A",
+      "icons": "#75669F",
+      "tab_selected": "#FFFFFF",
+      "tab_text": "#180E30",
+      "tab_background_text": "#180E30"
+    },
+    "images": {
+      "additional_backgrounds": [
+        {
+          "linear-gradient": "90deg, #F4EEFF 30%, #FDEDE7 100%"
+        }
+      ]
+    },
+    "properties": {
+      "additional_backgrounds_alignment": [
+        "left top"
+      ],
+      "additional_backgrounds_tiling": [
+        "no-repeat"
+      ],
+      "backgrounds_area": "window"
+    }
+  },
+  "dark_theme": {
+    "colors": {
+      "frame": "#322B44",
+      "toolbar": "rgba(0, 0, 0, 0.3)",
+      "toolbar_text": "#E7E1F8",
+      "toolbar_field": "rgba(0, 0, 0, 0.2)",
+      "toolbar_field_text": "#E7E1F8",
+      "toolbar_field_border": "#3D3C41",
+      "toolbar_field_border_focus": "#B89CFF",
+      "ntp_background": "#131215",
+      "ntp_text": "#FBFBFE",
+      "ntp_card_background": "#252428",
+      "popup": "#171519",
+      "popup_text": "#FBFBFE",
+      "icons": "#E7E1F8",
+      "tab_selected": "#3D3550",
+      "tab_text": "#F2F0F8",
+      "tab_background_text": "#F2F0F8"
+    },
+    "images": {
+      "additional_backgrounds": [
+        {
+          "linear-gradient": "90deg, #322B44 30%, #472424 100%"
+        }
+      ]
+    },
+    "properties": {
+      "additional_backgrounds_alignment": [
+        "left top"
+      ],
+      "additional_backgrounds_tiling": [
+        "no-repeat"
+      ],
+      "backgrounds_area": "window"
+    }
+  },
+  "kiwifox_style": {
+    "fieldRadius": -1,
+    "fieldBorderWidth": 1
+  }
+}

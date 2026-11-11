@@ -66,6 +66,7 @@
     "icons": "#C68AFF",
     "iconsAttention": "#52FFBD"
   },
+  "converter": 4,
   "header": {
     "light": {
       "toolbar": "#C1FFFFFF",

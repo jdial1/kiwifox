@@ -30,6 +30,8 @@ data class KiwiTheme(
     val header: Map<String, HeaderSpec> = emptyMap(),
     /** Image bytes of a theme being imported, by file name; written next to the theme when saved. */
     val pendingFiles: Map<String, ByteArray> = emptyMap(),
+    /** [ThemeConverter.VERSION] that produced this theme (0 = before versioning, or hand-made). */
+    val converter: Int = 0,
 ) {
     /**
      * A desktop header for one mode: [toolbar] and [field] are desktop `toolbar` and `toolbar_field` with
@@ -75,6 +77,7 @@ data class KiwiTheme(
         json.put("light", rolesToJson(light))
         json.put("dark", rolesToJson(dark))
         if (!style.isEmpty) json.put("style", style.toJson())
+        if (converter > 0) json.put("converter", converter)
         if (header.isNotEmpty()) {
             val h = JSONObject()
             for ((mode, spec) in header) {
@@ -147,6 +150,7 @@ data class KiwiTheme(
                 builtIn = builtIn,
                 style = KiwiStyleSpec.fromJson(json.optJSONObject("style")),
                 header = headerFromJson(json.optJSONObject("header")),
+                converter = json.optInt("converter", 0),
             )
         }
 

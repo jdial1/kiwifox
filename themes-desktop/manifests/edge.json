@@ -1,0 +1,51 @@
+{
+  "manifest_version": 2,
+  "name": "Edge",
+  "version": "1.0",
+  "_note": "APPROXIMATE: Microsoft Edge 157 crashes on launch on this PC, so it could not be measured. Based on Stylefox's 'Microsoft Edge Light' and the community 'Edge Dark' AMO themes, updated to Edge's current Fluent look (white toolbar on a light grey title bar, rounded-rectangle address bar, Fluent blue accent).",
+  "theme": {
+    "colors": {
+      "frame": "#F3F3F3",
+      "toolbar": "#FFFFFF",
+      "toolbar_text": "#424242",
+      "toolbar_field": "#F5F5F5",
+      "toolbar_field_text": "#1B1B1B",
+      "toolbar_field_border_focus": "#0F6CBD",
+      "toolbar_field_focus": "#FFFFFF",
+      "ntp_background": "#F7F7F7",
+      "ntp_text": "#1B1B1B",
+      "ntp_card_background": "#FFFFFF",
+      "popup": "#FFFFFF",
+      "popup_text": "#1B1B1B",
+      "popup_highlight": "#F0F0F0",
+      "icons": "#424242",
+      "tab_selected": "#FFFFFF",
+      "tab_text": "#1B1B1B",
+      "tab_background_text": "#424242"
+    }
+  },
+  "dark_theme": {
+    "colors": {
+      "frame": "#1F1F1F",
+      "toolbar": "#2B2B2B",
+      "toolbar_text": "#D6D6D6",
+      "toolbar_field": "#1F1F1F",
+      "toolbar_field_text": "#FFFFFF",
+      "toolbar_field_border_focus": "#479EF5",
+      "toolbar_field_focus": "#1F1F1F",
+      "ntp_background": "#1F1F1F",
+      "ntp_text": "#FFFFFF",
+      "ntp_card_background": "#2B2B2B",
+      "popup": "#2B2B2B",
+      "popup_text": "#FFFFFF",
+      "popup_highlight": "#383838",
+      "icons": "#D6D6D6",
+      "tab_selected": "#2B2B2B",
+      "tab_text": "#FFFFFF",
+      "tab_background_text": "#D6D6D6"
+    }
+  },
+  "kiwifox_style": {
+    "fieldRadius": 8
+  }
+}

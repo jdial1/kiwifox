@@ -45,6 +45,14 @@ class BundledThemesGenerator {
                 write(out, name, JSONObject(files.getValue("manifest.json").toString(Charsets.UTF_8)), files, rasterize)
             }
         }
+
+        // Browser look-alikes (Chrome, Edge, desktop Firefox): hand-written manifests from measured colors.
+        // They keep their display name, and `kiwifox_style` sets the field shape the converter can't infer.
+        val manifests = File(zips, "manifests").listFiles { f -> f.name.endsWith(".json") }.orEmpty()
+        for (file in manifests.sortedBy { it.name }) {
+            val manifest = JSONObject(file.readText())
+            write(out, file.name.removeSuffix(".json"), manifest, emptyMap(), rasterize, keepName = true)
+        }
     }
 
     private fun write(
@@ -53,13 +61,14 @@ class BundledThemesGenerator {
         manifest: JSONObject,
         files: Map<String, ByteArray>,
         rasterize: (String, ByteArray) -> Pair<ByteArray, Float>?,
+        keepName: Boolean = false,
     ) {
         val existing = File(out, "$name.json").takeIf { it.isFile }?.let { JSONObject(it.readText()) }
         val converted = ThemeConverter.convert(manifest, name, files, rasterize)
-        val keptStyle = KiwiStyleSpec.fromJson(existing?.optJSONObject("style"))
+        val keptStyle = KiwiStyleSpec.fromJson(manifest.optJSONObject("kiwifox_style") ?: existing?.optJSONObject("style"))
         val theme = converted.theme.copy(source = existing?.optString("_source")?.ifBlank { null } ?: name, style = keptStyle)
         val json = JSONObject(theme.toJson())
-        json.remove("name") // bundled themes are named after their file
+        if (keepName) json.put("name", manifest.getString("name")) else json.remove("name") // else named after the file
         File(out, "$name.json").writeText(json.toString(2) + "\n")
         val imageDir = File(out, name)
         imageDir.deleteRecursively()

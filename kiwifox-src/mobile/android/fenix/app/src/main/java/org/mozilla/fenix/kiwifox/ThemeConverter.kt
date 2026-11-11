@@ -95,6 +95,12 @@ object ThemeConverter {
     class Converted(val theme: KiwiTheme, val notes: List<String>)
 
     /**
+     * Bumped whenever the conversion maps more of a desktop theme. Imported themes made by an older
+     * version are converted again from their source (KiwiThemeManager.upgradeOutdated).
+     */
+    const val VERSION = 4
+
+    /**
      * @param files the theme package's files by path (an .xpi/.zip), for header images.
      * @param rasterize turns an SVG into (PNG bytes, image px per CSS px); null on Android, where SVG
      *   layers are dropped. The bundled-theme generator passes one that uses pre-rendered PNGs.
@@ -155,7 +161,7 @@ object ThemeConverter {
         return Converted(
             KiwiTheme(
                 id = "", name = name, source = name, light = light, dark = dark, builtIn = false, style = style,
-                header = header, pendingFiles = pending,
+                header = header, pendingFiles = pending, converter = VERSION,
             ),
             notes,
         )

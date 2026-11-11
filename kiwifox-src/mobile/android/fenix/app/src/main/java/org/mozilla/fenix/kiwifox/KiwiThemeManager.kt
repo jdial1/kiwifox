@@ -24,6 +24,7 @@ import mozilla.components.compose.base.theme.KiwiStyles
 import mozilla.components.support.ktx.android.content.getColorFromAttr
 import org.json.JSONObject
 import org.mozilla.fenix.R
+import org.mozilla.fenix.ext.components
 import java.io.File
 import kotlin.math.roundToInt
 import com.google.android.material.R as materialR
@@ -140,6 +141,45 @@ object KiwiThemeManager {
         reload(context)
     }
 
+    @Volatile
+    private var upgradeStarted = false
+
+    /**
+     * Converts imported themes made by an older [ThemeConverter.VERSION] again from their source link, so
+     * themes imported before a mapping existed (new tab page, menus, header images...) gain it. Runs once
+     * per process on a background thread; themes imported from a file have no link and keep what they have.
+     */
+    fun upgradeOutdated(context: Context, client: mozilla.components.concept.fetch.Client) {
+        if (upgradeStarted) return
+        upgradeStarted = true
+        val app = context.applicationContext
+        ensureLoaded(app)
+        val outdated = themes.filter {
+            !it.builtIn && it.converter < ThemeConverter.VERSION &&
+                (it.source.startsWith("https://") || it.source.startsWith("http://"))
+        }
+        if (outdated.isEmpty()) return
+        Thread({
+            var changed = false
+            for (old in outdated) {
+                val fresh = runCatching { ThemeImporter(client).importUrl(old.source).theme }.getOrNull() ?: continue
+                val dir = importDir(app)
+                File(dir, old.id).deleteRecursively()
+                if (fresh.pendingFiles.isNotEmpty()) {
+                    val imageDir = File(dir, old.id).apply { mkdirs() }
+                    for ((name, bytes) in fresh.pendingFiles) File(imageDir, name).writeBytes(bytes)
+                }
+                // Same id and name: the selection and the user's style overrides stay attached.
+                val upgraded = fresh.copy(id = old.id, name = old.name, builtIn = false, pendingFiles = emptyMap())
+                File(dir, "${old.id}.json").writeText(upgraded.toJson())
+                changed = true
+            }
+            if (changed) {
+                android.os.Handler(android.os.Looper.getMainLooper()).post { reload(app) }
+            }
+        }, "KiwiFox theme upgrade").start()
+    }
+
     /** Copies a .ttf/.otf font into the app and returns the file name to use as `fontFile`. */
     fun importFont(context: Context, bytes: ByteArray, displayName: String): String {
         val ext = displayName.substringAfterLast('.', "").lowercase()
@@ -212,24 +252,31 @@ object KiwiThemeManager {
      */
     fun applyToActivity(activity: Activity) {
         ensureLoaded(activity)
+        runCatching { upgradeOutdated(activity, activity.components.core.client) }
+        KiwiSettingsTint.register(activity)
         val dark = (activity.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
             Configuration.UI_MODE_NIGHT_YES
         val roles = current?.let { if (dark) it.dark else it.light }
         val surface = roles?.get("surface") ?: activity.getColorFromAttr(materialR.attr.colorSurface)
         val onSurface = roles?.get("onSurface") ?: activity.getColorFromAttr(materialR.attr.colorOnSurface)
 
-        activity.findViewById<Toolbar>(R.id.navigationToolbar)?.let { bar ->
-            bar.setBackgroundColor(surface)
-            bar.setTitleTextColor(onSurface)
-            bar.navigationIcon?.setTint(onSurface)
-            bar.overflowIcon?.setTint(onSurface)
-        }
-
         // Desktop shows its tab strip (`frame` and the header images) above the toolbar; Android has the
         // status bar there, so it takes the header's color at that height, else frame.
         val private = runCatching { (activity as? org.mozilla.fenix.HomeActivity)?.let { it.browsingModeManager.mode.isPrivate } }
             .getOrNull() == true
         val header = (if (dark) KiwiStyles.current.dark else KiwiStyles.current.light).header
+
+        activity.findViewById<Toolbar>(R.id.navigationToolbar)?.let { bar ->
+            // The settings app bar continues the header the status bar draws, as the browser toolbar does.
+            if (header != null && !private) {
+                bar.background = KiwiStatusBar.headerBackground(bar, header)
+            } else {
+                bar.setBackgroundColor(surface)
+            }
+            bar.setTitleTextColor(onSurface)
+            bar.navigationIcon?.setTint(onSurface)
+            bar.overflowIcon?.setTint(onSurface)
+        }
         val statusBar = if (private) null else header?.statusBar?.toArgb() ?: roles?.get("frame") ?: roles?.get("surface")
         val window = activity.window
         @Suppress("DEPRECATION")

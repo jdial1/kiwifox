@@ -8,6 +8,9 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
 import android.graphics.Canvas
+import android.graphics.ColorFilter
+import android.graphics.PixelFormat
+import android.graphics.drawable.Drawable
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -56,6 +59,41 @@ internal object KiwiStatusBar {
         view.invalidate()
         view.bringToFront()
         ViewCompat.requestApplyInsets(view)
+    }
+
+    /**
+     * A background for an XML app bar (the settings screens'): the header from the bar's own position on
+     * screen, under the theme's translucent toolbar color, so it continues the status bar's artwork.
+     */
+    fun headerBackground(view: View, header: KiwiHeader): Drawable {
+        KiwiHeaderTicker.register(view)
+        return HeaderBackground(view, header)
+    }
+
+    private class HeaderBackground(private val view: View, private val header: KiwiHeader) : Drawable() {
+        private val scope = CanvasDrawScope()
+        private val location = IntArray(2)
+
+        override fun draw(canvas: Canvas) {
+            view.getLocationInWindow(location)
+            val density = Density(view.context)
+            val statusBarPx = ViewCompat.getRootWindowInsets(view)?.getInsets(WindowInsetsCompat.Type.statusBars())?.top ?: 0
+            val headerPx = statusBarPx + with(density) { KiwiHeader.TOOLBAR_HEIGHT.toPx() }
+            val windowPx = view.rootView.height.toFloat()
+            val b = bounds
+            scope.draw(density, LayoutDirection.Ltr, ComposeCanvas(canvas), Size(b.width().toFloat(), b.height().toFloat())) {
+                drawKiwiHeader(header, location[1].toFloat(), headerPx, windowPx)
+                drawRect(header.toolbar)
+            }
+        }
+
+        override fun setAlpha(alpha: Int) = Unit
+
+        override fun setColorFilter(colorFilter: ColorFilter?) = Unit
+
+        @Deprecated("Deprecated in Java")
+        @Suppress("DEPRECATION")
+        override fun getOpacity() = PixelFormat.OPAQUE
     }
 
     /** Draws [header] with the same code and origin (top of the screen) as the Compose toolbar. */

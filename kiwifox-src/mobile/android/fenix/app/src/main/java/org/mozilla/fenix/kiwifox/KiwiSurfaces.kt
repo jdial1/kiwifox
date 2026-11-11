@@ -50,7 +50,7 @@ object KiwiSurfaces {
 
     /** The new tab page background, or null to keep Firefox's. */
     @Composable
-    fun homeBackground(): Color? = roles()?.get("ntpBackground")?.let(::Color)
+    fun homeBackground(): Color? = roles()?.let { r -> (r["ntpBackground"] ?: r["background"])?.let(::Color) }
 
     /** Paints the new tab page background behind the homepage (under any user wallpaper). */
     @Composable

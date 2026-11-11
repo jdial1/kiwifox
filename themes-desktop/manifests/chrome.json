@@ -1,0 +1,53 @@
+{
+  "manifest_version": 2,
+  "name": "Chrome",
+  "version": "1.0",
+  "_note": "Measured from Google Chrome 157 on Windows (2026-11-11, tools/browser_shots.py): tab strip, toolbar, omnibox, focus ring, text and icon colors, new tab page.",
+  "theme": {
+    "colors": {
+      "frame": "#D3E3FD",
+      "toolbar": "#FFFFFF",
+      "toolbar_text": "#474747",
+      "toolbar_field": "#EDF2FA",
+      "toolbar_field_text": "#1F1F1F",
+      "toolbar_field_border_focus": "#0B57D0",
+      "toolbar_field_focus": "#FFFFFF",
+      "toolbar_field_text_focus": "#1F1F1F",
+      "ntp_background": "#FFFFFF",
+      "ntp_text": "#1F1F1F",
+      "ntp_card_background": "#E9EEF6",
+      "popup": "#FFFFFF",
+      "popup_text": "#1F1F1F",
+      "popup_highlight": "rgba(31, 31, 31, 0.08)",
+      "icons": "#474747",
+      "tab_selected": "#FFFFFF",
+      "tab_text": "#1F1F1F",
+      "tab_background_text": "#1F1F1F"
+    }
+  },
+  "dark_theme": {
+    "colors": {
+      "frame": "#1F2020",
+      "toolbar": "#3C3C3C",
+      "toolbar_text": "#C7C7C7",
+      "toolbar_field": "#282828",
+      "toolbar_field_text": "#E3E3E3",
+      "toolbar_field_border_focus": "#A8C7FA",
+      "toolbar_field_focus": "#282828",
+      "toolbar_field_text_focus": "#E3E3E3",
+      "ntp_background": "#3C3C3C",
+      "ntp_text": "#E3E3E3",
+      "ntp_card_background": "#282828",
+      "popup": "#282828",
+      "popup_text": "#E3E3E3",
+      "popup_highlight": "rgba(227, 227, 227, 0.08)",
+      "icons": "#C7C7C7",
+      "tab_selected": "#3C3C3C",
+      "tab_text": "#E3E3E3",
+      "tab_background_text": "#E3E3E3"
+    }
+  },
+  "kiwifox_style": {
+    "fieldRadius": -1
+  }
+}

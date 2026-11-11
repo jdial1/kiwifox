@@ -46,6 +46,18 @@ not mapped: [docs/desktop-vs-mobile.md](docs/desktop-vs-mobile.md).
 
 ![Cascade](docs/screenshots/bundled-cascade.png)
 
+**Chrome**: measured from Google Chrome 157
+
+![Chrome](docs/screenshots/bundled-chrome.png)
+
+**Edge**: approximate, see [Browser look-alikes](#browser-look-alikes)
+
+![Edge](docs/screenshots/bundled-edge.png)
+
+**Firefox (desktop)**: measured from desktop Firefox 159's default theme
+
+![Firefox (desktop)](docs/screenshots/bundled-firefox-desktop.png)
+
 **Kiwi**
 
 ![Kiwi](docs/screenshots/bundled-kiwi.png)
@@ -57,6 +69,27 @@ not mapped: [docs/desktop-vs-mobile.md](docs/desktop-vs-mobile.md).
 **Materialfox**
 
 ![Materialfox](docs/screenshots/bundled-materialfox.png)
+
+### Browser look-alikes
+
+Three bundled themes copy other browsers' chrome. Their sources are plain desktop theme manifests in
+[`themes-desktop/manifests/`](themes-desktop/manifests), converted by the app's own converter
+(`gen-bundled.sh`), so they also show what any `manifest.json` theme can carry over.
+
+| Theme | Reference | What was matched |
+|---|---|---|
+| Chrome | Chrome 157 on Windows, light and dark, captured with `tools/browser_shots.py` | tab strip `#D3E3FD` / `#1F2020`, toolbar, pill omnibox `#EDF2FA` / `#282828`, `#0B57D0` / `#A8C7FA` focus ring, icon and text greys, white / `#3C3C3C` new tab page |
+| Firefox (desktop) | desktop Firefox 159's default theme, captured with `tools/desktop_shots.py` | lavender-to-peach window gradient behind a translucent toolbar, pill address bar with a 1 px border, `#764EDD` / `#B89CFF` focus ring, new tab page and menus |
+| Edge | **approximate**: Edge crashed on launch on the capture PC | Stylefox's *Microsoft Edge Light* and the community *Edge Dark* AMO themes, moved to Edge's current Fluent look: grey title bar, white toolbar, 8 dp rounded-rectangle address bar, Fluent blue `#0F6CBD` / `#479EF5` |
+
+Desktop (top) vs. KiwiFox (bottom), light and dark:
+
+![Chrome vs KiwiFox](docs/compare/browser-chrome.png)
+
+![Firefox desktop vs KiwiFox](docs/compare/browser-firefox-desktop.png)
+
+The Chrome dark new tab page has a white search box over dark shortcut tiles. Fenix draws its search
+box and its cards in a single color, so the cards stay dark.
 
 ### Popular image themes (addons.mozilla.org)
 
