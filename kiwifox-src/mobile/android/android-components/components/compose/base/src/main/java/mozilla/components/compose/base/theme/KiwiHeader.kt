@@ -246,13 +246,72 @@ fun DrawScope.drawKiwiHeader(
     if (frame) drawRect(header.frame)
     val pxPerCss = density * KiwiHeader.DP_PER_CSS_PX
     val boxW = size.width / pxPerCss
+    val cover = header.coverLayer(size.width, windowPx)
     translate(top = -originPx) {
         for (layer in header.layers.asReversed()) {
+            if (layer === cover) {
+                drawCover(layer, size.width, windowPx)
+                continue
+            }
             val boxH = (if (layer.windowArea) windowPx else headerPx) / pxPerCss
             // Unclipped, the artwork continues below the header box at the same place and scale.
             val clipH = if (clipToHeader) boxH else maxOf(boxH, windowPx / pxPerCss)
             drawLayer(layer, boxW, boxH, pxPerCss, clipH)
         }
+    }
+}
+
+/** An image layer's size in image pixels. */
+private fun KiwiHeaderLayer.pixelSize(): Pair<Int, Int>? = when (this) {
+    is KiwiHeaderLayer.Image -> bitmap.width to bitmap.height
+    is KiwiHeaderLayer.Animated -> drawable.intrinsicWidth to drawable.intrinsicHeight
+    is KiwiHeaderLayer.Gradient -> null
+}?.takeIf { it.first > 0 && it.second > 0 }
+
+/**
+ * In wallpaper mode, the image big enough to cover the whole screen without visible enlarging (at most
+ * [MAX_COVER_ENLARGE] screen px per image px), the largest if several: it is drawn covering the screen
+ * on every surface (status bar, toolbar, homepage, navigation bar), so it stays sharp and continuous.
+ * Header strips (typically 3000 x 200) are too short and keep the header layout.
+ */
+fun KiwiHeader.coverLayer(widthPx: Float, windowPx: Float): KiwiHeaderLayer? {
+    if (!wallpaper || widthPx <= 0f || windowPx <= 0f) return null
+    return layers.filter { layer ->
+        val (w, h) = layer.pixelSize() ?: return@filter false
+        maxOf(widthPx / w, windowPx / h) <= MAX_COVER_ENLARGE
+    }.maxByOrNull { layer -> layer.pixelSize()!!.let { it.first.toLong() * it.second } }
+}
+
+private const val MAX_COVER_ENLARGE = 2.5f
+
+/** [layer] scaled to cover a [widthPx] x [windowPx] screen, placed by its alignment keywords. */
+private fun DrawScope.drawCover(layer: KiwiHeaderLayer, widthPx: Float, windowPx: Float) {
+    val (iw, ih) = layer.pixelSize() ?: return
+    val scale = maxOf(widthPx / iw, windowPx / ih)
+    val w = iw * scale
+    val h = ih * scale
+    val (horizontal, vertical) = positionKeywords(layer.alignment)
+    fun along(keyword: String, low: String, high: String) = when (keyword) {
+        low -> 0f
+        high -> 1f
+        else -> 0.5f
+    }
+    val left = (widthPx - w) * along(horizontal, "left", "right")
+    val top = (windowPx - h) * along(vertical, "top", "bottom")
+    when (layer) {
+        is KiwiHeaderLayer.Image -> drawImage(
+            image = layer.bitmap,
+            srcOffset = IntOffset.Zero,
+            srcSize = IntSize(iw, ih),
+            dstOffset = IntOffset(left.roundToInt(), top.roundToInt()),
+            dstSize = IntSize(w.roundToInt(), h.roundToInt()),
+            filterQuality = FilterQuality.Medium,
+        )
+        is KiwiHeaderLayer.Animated -> drawIntoCanvas { canvas ->
+            layer.drawable.setBounds(left.roundToInt(), top.roundToInt(), (left + w).roundToInt(), (top + h).roundToInt())
+            layer.drawable.draw(canvas.nativeCanvas)
+        }
+        is KiwiHeaderLayer.Gradient -> Unit
     }
 }
 
@@ -263,21 +322,22 @@ fun DrawScope.drawKiwiHeader(
 fun KiwiHeader.pictureBottomPx(density: Float, widthPx: Float, headerPx: Float, windowPx: Float): Float {
     val pxPerCss = density * KiwiHeader.DP_PER_CSS_PX
     val boxW = widthPx / pxPerCss
+    if (coverLayer(widthPx, windowPx) != null) return windowPx
     var bottom = 0f
     for (layer in layers) {
         if (layer is KiwiHeaderLayer.Gradient) continue
         val boxH = (if (layer.windowArea) windowPx else headerPx) / pxPerCss
         val r = layerRect(layer, boxW, boxH) ?: continue
         val repeatY = layer.tiling == "repeat" || layer.tiling == "repeat-y"
-        bottom = maxOf(bottom, (if (repeatY) boxH else r[1] + r[3]) * pxPerCss)
+        bottom = maxOf(bottom, if (repeatY) windowPx else (r[1] + r[3]) * pxPerCss)
     }
     return bottom.coerceAtMost(windowPx)
 }
 
 /**
- * The header's artwork blurred: rendered [AMBIENT_DOWNSCALE] times smaller than the screen and drawn
- * back enlarged with bilinear filtering, which keeps its colors and shapes but no detail, so even a
- * 200 px tall header strip can fill a phone screen. Cached per screen size.
+ * The header's artwork softened: rendered at half its own resolution and drawn back enlarged with
+ * bilinear filtering, which keeps its colors and shapes, so even a 200 px tall header strip can fill a
+ * phone screen without showing enlarged pixels. Cached per screen size.
  */
 fun KiwiHeader.ambient(density: Float, widthPx: Float, headerPx: Float, windowPx: Float): ImageBitmap? {
     val key = "${widthPx.toInt()}x${windowPx.toInt()}@$density/${headerPx.toInt()}"
@@ -287,39 +347,44 @@ fun KiwiHeader.ambient(density: Float, widthPx: Float, headerPx: Float, windowPx
         null
     } else {
         runCatching {
-            // Render at 1/4, then halve twice with filtering: a cheap blur without RenderEffect (API 31+).
+            // Render at the artwork's own resolution (one bitmap px per image px, at most 1024 px wide),
+            // then halve it once with filtering: enlarged with bilinear filtering that is a soft blur
+            // that still shows the artwork's shapes, without RenderEffect (API 31+).
+            val imagePxPerCss = layers.maxOfOrNull {
+                when (it) {
+                    is KiwiHeaderLayer.Image -> it.pxPerCss
+                    is KiwiHeaderLayer.Animated -> it.pxPerCss
+                    is KiwiHeaderLayer.Gradient -> 0f
+                }
+            }?.takeIf { it > 0f } ?: 1f
+            val cssWidth = widthPx / (density * KiwiHeader.DP_PER_CSS_PX)
+            val renderDensity = minOf(imagePxPerCss / KiwiHeader.DP_PER_CSS_PX, AMBIENT_MAX_WIDTH / cssWidth, density)
+            val ratio = renderDensity / density
             val first = ImageBitmap(
-                (widthPx / AMBIENT_FIRST_PASS).toInt().coerceAtLeast(1),
-                (bottom / AMBIENT_FIRST_PASS).toInt().coerceAtLeast(1),
+                (widthPx * ratio).toInt().coerceAtLeast(1),
+                (bottom * ratio).toInt().coerceAtLeast(1),
             )
             CanvasDrawScope().draw(
-                Density(density / AMBIENT_FIRST_PASS),
+                Density(renderDensity),
                 LayoutDirection.Ltr,
                 Canvas(first),
                 Size(first.width.toFloat(), first.height.toFloat()),
             ) {
-                drawKiwiHeader(this@ambient, 0f, headerPx / AMBIENT_FIRST_PASS, windowPx / AMBIENT_FIRST_PASS)
+                drawKiwiHeader(this@ambient, 0f, headerPx * ratio, windowPx * ratio)
             }
-            var small = first.asAndroidBitmap()
-            var factor = AMBIENT_FIRST_PASS
-            while (factor < AMBIENT_DOWNSCALE) {
-                small = android.graphics.Bitmap.createScaledBitmap(
-                    small,
-                    (small.width / 2).coerceAtLeast(1),
-                    (small.height / 2).coerceAtLeast(1),
-                    true,
-                )
-                factor *= 2
-            }
-            small.asImageBitmap()
+            android.graphics.Bitmap.createScaledBitmap(
+                first.asAndroidBitmap(),
+                (first.width / 2).coerceAtLeast(1),
+                (first.height / 2).coerceAtLeast(1),
+                true,
+            ).asImageBitmap()
         }.getOrNull()
     }
     ambientCache = key to bitmap
     return bitmap
 }
 
-private const val AMBIENT_FIRST_PASS = 4f
-private const val AMBIENT_DOWNSCALE = 16f
+private const val AMBIENT_MAX_WIDTH = 1024f
 private const val WALLPAPER_FADE_DP = 72f
 
 /**
@@ -339,6 +404,11 @@ fun DrawScope.drawKiwiWallpaper(
     if (!header.hasPicture) return
     if (header.animated && KiwiHeaderTicker.tick < 0) return
     drawRect(header.frame)
+    if (header.coverLayer(size.width, windowPx) != null) {
+        // A large image: sharp, covering the screen like the header above it.
+        drawKiwiHeader(header, originPx, headerPx, windowPx, frame = false, clipToHeader = false)
+        return
+    }
     header.ambient(density, size.width, headerPx, windowPx)?.let { ambient ->
         // Cover the screen, centered.
         val scale = maxOf(size.width / ambient.width, windowPx / ambient.height)
@@ -435,7 +505,7 @@ private fun DrawScope.drawLayer(layer: KiwiHeaderLayer, boxW: Float, boxH: Float
     val repeatX = layer.tiling == "repeat" || layer.tiling == "repeat-x"
     val repeatY = layer.tiling == "repeat" || layer.tiling == "repeat-y"
     val xs = if (repeatX) (floor(-x0 / w).toInt()..ceil((boxW - x0) / w).toInt()).map { x0 + it * w } else listOf(x0)
-    val ys = if (repeatY) (floor(-y0 / h).toInt()..ceil((boxH - y0) / h).toInt()).map { y0 + it * h } else listOf(y0)
+    val ys = if (repeatY) (floor(-y0 / h).toInt()..ceil((clipH - y0) / h).toInt()).map { y0 + it * h } else listOf(y0)
     clipRect(0f, 0f, boxW * pxPerCss, clipH * pxPerCss) {
         for (x in xs) for (y in ys) {
             val left = x * pxPerCss
