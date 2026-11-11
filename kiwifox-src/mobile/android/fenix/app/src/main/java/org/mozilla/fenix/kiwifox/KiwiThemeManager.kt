@@ -287,7 +287,7 @@ object KiwiThemeManager {
         // The navigation bar continues the page above it: desktop's new tab page color (the homepage),
         // else the theme background.
         val navigationBar = if (private || roles == null) null else roles["ntpBackground"] ?: roles["background"] ?: surface
-        KiwiStatusBar.applyNavigationBar(activity, navigationBar)
+        KiwiStatusBar.applyNavigationBar(activity, navigationBar, if (private) null else header?.takeIf { it.wallpaper && it.hasPicture })
         WindowCompat.getInsetsController(window, window.decorView).apply {
             isAppearanceLightStatusBars = ColorUtils.calculateLuminance(statusBar ?: surface) > 0.5
             isAppearanceLightNavigationBars = ColorUtils.calculateLuminance(navigationBar ?: surface) > 0.5
@@ -326,7 +326,10 @@ object KiwiThemeManager {
                 fieldTextFocus = roles["popupText"]?.let { Color(it) } ?: color("fieldTextFocus"),
                 icons = color("icons"),
                 iconsAttention = color("iconsAttention"),
-                header = theme?.let { t -> t.header[mode]?.let { KiwiHeaderLoader.load(context, t, it, roles["frame"]) } },
+                header = theme?.let { t ->
+                    t.header[mode]?.let { KiwiHeaderLoader.load(context, t, it, roles["frame"]) }
+                        ?.copy(wallpaper = spec.homeWallpaper ?: true)
+                },
             )
         }
         return KiwiStyle(

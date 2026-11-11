@@ -561,6 +561,21 @@ private fun StyleSection(
             onDone = { onChange(overrides.copy(fieldRadius = it.toInt().toFloat())) },
         )
     }
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            stringResource(R.string.kiwifox_style_home_wallpaper),
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f),
+        )
+        Switch(
+            checked = style.homeWallpaper ?: true,
+            onCheckedChange = { on -> onChange(overrides.copy(homeWallpaper = on)) },
+        )
+    }
     StyleSlider(
         label = stringResource(R.string.kiwifox_style_field_height),
         value = style.fieldHeight ?: KiwiStyleSpec.MAX_FIELD_HEIGHT,

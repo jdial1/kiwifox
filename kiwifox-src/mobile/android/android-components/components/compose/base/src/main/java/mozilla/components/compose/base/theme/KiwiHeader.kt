@@ -23,10 +23,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Canvas
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
@@ -36,7 +44,9 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -64,6 +74,8 @@ import kotlin.math.roundToInt
  * @property field Desktop `toolbar_field` with its alpha, the address field over the header.
  * @property layers Top-most first, in manifest order.
  * @property statusBar A single color for the status bar where it can't draw the header, null = [frame].
+ * @property wallpaper The header's artwork also fills the homepage and the navigation bar (see
+ * [drawKiwiWallpaper]); only headers with an image have artwork to show.
  */
 data class KiwiHeader(
     val frame: Color,
@@ -71,8 +83,16 @@ data class KiwiHeader(
     val field: Color,
     val layers: List<KiwiHeaderLayer>,
     val statusBar: Color? = null,
+    val wallpaper: Boolean = false,
 ) {
     val animated: Boolean get() = layers.any { it is KiwiHeaderLayer.Animated }
+
+    /** True when the header has artwork (an image), not just colors and gradients. */
+    val hasPicture: Boolean get() = layers.any { it !is KiwiHeaderLayer.Gradient }
+
+    /** The blurred artwork, rendered once per screen size (see [ambient]). */
+    @Volatile
+    internal var ambientCache: Pair<String, ImageBitmap?>? = null
 
     companion object {
         /** Desktop CSS px to Android dp for header artwork. */
@@ -200,7 +220,8 @@ fun KiwiHeaderBox(content: @Composable () -> Unit) {
             .clipToBounds()
             .drawBehind {
                 // Under the status bar: continue its band. Anywhere else: the band just below the status bar.
-                val origin = if (top <= statusBarPx + toolbarPx) top else statusBarPx
+                val onWallpaper = header.wallpaper && header.hasPicture
+                val origin = if (top <= statusBarPx + toolbarPx || onWallpaper) top else statusBarPx
                 drawKiwiHeader(header, origin, statusBarPx + toolbarPx, maxOf(windowPx, size.height))
             },
     ) { content() }
@@ -211,22 +232,180 @@ fun KiwiHeaderBox(content: @Composable () -> Unit) {
  * screen) downwards. [headerPx] is the header box height (status bar + toolbar), [windowPx] the screen
  * height (for `backgrounds_area: window` layers).
  */
-fun DrawScope.drawKiwiHeader(header: KiwiHeader, originPx: Float, headerPx: Float, windowPx: Float) {
+@Suppress("LongParameterList")
+fun DrawScope.drawKiwiHeader(
+    header: KiwiHeader,
+    originPx: Float,
+    headerPx: Float,
+    windowPx: Float,
+    frame: Boolean = true,
+    clipToHeader: Boolean = true,
+) {
     // Reading the ticker makes this draw pass observe it, so animated headers redraw on each frame.
     if (header.animated && KiwiHeaderTicker.tick < 0) return
-    drawRect(header.frame)
+    if (frame) drawRect(header.frame)
     val pxPerCss = density * KiwiHeader.DP_PER_CSS_PX
     val boxW = size.width / pxPerCss
     translate(top = -originPx) {
         for (layer in header.layers.asReversed()) {
             val boxH = (if (layer.windowArea) windowPx else headerPx) / pxPerCss
-            drawLayer(layer, boxW, boxH, pxPerCss)
+            // Unclipped, the artwork continues below the header box at the same place and scale.
+            val clipH = if (clipToHeader) boxH else maxOf(boxH, windowPx / pxPerCss)
+            drawLayer(layer, boxW, boxH, pxPerCss, clipH)
         }
     }
 }
 
+/**
+ * Where the header's artwork ends, in px from the top of the screen: the lowest bottom edge of its
+ * image layers (header images are usually taller than the status bar and toolbar they sit behind).
+ */
+fun KiwiHeader.pictureBottomPx(density: Float, widthPx: Float, headerPx: Float, windowPx: Float): Float {
+    val pxPerCss = density * KiwiHeader.DP_PER_CSS_PX
+    val boxW = widthPx / pxPerCss
+    var bottom = 0f
+    for (layer in layers) {
+        if (layer is KiwiHeaderLayer.Gradient) continue
+        val boxH = (if (layer.windowArea) windowPx else headerPx) / pxPerCss
+        val r = layerRect(layer, boxW, boxH) ?: continue
+        val repeatY = layer.tiling == "repeat" || layer.tiling == "repeat-y"
+        bottom = maxOf(bottom, (if (repeatY) boxH else r[1] + r[3]) * pxPerCss)
+    }
+    return bottom.coerceAtMost(windowPx)
+}
+
+/**
+ * The header's artwork blurred: rendered [AMBIENT_DOWNSCALE] times smaller than the screen and drawn
+ * back enlarged with bilinear filtering, which keeps its colors and shapes but no detail, so even a
+ * 200 px tall header strip can fill a phone screen. Cached per screen size.
+ */
+fun KiwiHeader.ambient(density: Float, widthPx: Float, headerPx: Float, windowPx: Float): ImageBitmap? {
+    val key = "${widthPx.toInt()}x${windowPx.toInt()}@$density/${headerPx.toInt()}"
+    ambientCache?.let { (k, bitmap) -> if (k == key) return bitmap }
+    val bottom = pictureBottomPx(density, widthPx, headerPx, windowPx)
+    val bitmap = if (bottom < 1f || widthPx < 1f) {
+        null
+    } else {
+        runCatching {
+            // Render at 1/4, then halve twice with filtering: a cheap blur without RenderEffect (API 31+).
+            val first = ImageBitmap(
+                (widthPx / AMBIENT_FIRST_PASS).toInt().coerceAtLeast(1),
+                (bottom / AMBIENT_FIRST_PASS).toInt().coerceAtLeast(1),
+            )
+            CanvasDrawScope().draw(
+                Density(density / AMBIENT_FIRST_PASS),
+                LayoutDirection.Ltr,
+                Canvas(first),
+                Size(first.width.toFloat(), first.height.toFloat()),
+            ) {
+                drawKiwiHeader(this@ambient, 0f, headerPx / AMBIENT_FIRST_PASS, windowPx / AMBIENT_FIRST_PASS)
+            }
+            var small = first.asAndroidBitmap()
+            var factor = AMBIENT_FIRST_PASS
+            while (factor < AMBIENT_DOWNSCALE) {
+                small = android.graphics.Bitmap.createScaledBitmap(
+                    small,
+                    (small.width / 2).coerceAtLeast(1),
+                    (small.height / 2).coerceAtLeast(1),
+                    true,
+                )
+                factor *= 2
+            }
+            small.asImageBitmap()
+        }.getOrNull()
+    }
+    ambientCache = key to bitmap
+    return bitmap
+}
+
+private const val AMBIENT_FIRST_PASS = 4f
+private const val AMBIENT_DOWNSCALE = 16f
+private const val WALLPAPER_FADE_DP = 72f
+
+/**
+ * The homepage wallpaper for a header with [KiwiHeader.wallpaper]: the blurred artwork covering the
+ * whole screen and, when [sharp], the artwork itself continuing from the toolbar at its own scale and
+ * fading out at its bottom edge. This scope shows the screen from [originPx] (its distance from the
+ * top) downwards, so the homepage and the navigation bar line up. Nothing for headers without artwork.
+ */
+@Suppress("LongParameterList")
+fun DrawScope.drawKiwiWallpaper(
+    header: KiwiHeader,
+    originPx: Float,
+    headerPx: Float,
+    windowPx: Float,
+    sharp: Boolean = true,
+) {
+    if (!header.hasPicture) return
+    if (header.animated && KiwiHeaderTicker.tick < 0) return
+    drawRect(header.frame)
+    header.ambient(density, size.width, headerPx, windowPx)?.let { ambient ->
+        // Cover the screen, centered.
+        val scale = maxOf(size.width / ambient.width, windowPx / ambient.height)
+        val w = ambient.width * scale
+        val h = ambient.height * scale
+        drawImage(
+            image = ambient,
+            srcOffset = IntOffset.Zero,
+            srcSize = IntSize(ambient.width, ambient.height),
+            dstOffset = IntOffset(((size.width - w) / 2).roundToInt(), ((windowPx - h) / 2 - originPx).roundToInt()),
+            dstSize = IntSize(w.roundToInt(), h.roundToInt()),
+            filterQuality = FilterQuality.Low,
+        )
+    }
+    if (!sharp) return
+    val bottom = header.pictureBottomPx(density, size.width, headerPx, windowPx) - originPx
+    if (bottom <= 0f) return
+    val fade = minOf(bottom, WALLPAPER_FADE_DP * density)
+    // The sharp artwork, faded out over its last [fade] px by masking it with a vertical gradient.
+    drawContext.canvas.saveLayer(Rect(0f, 0f, size.width, bottom), Paint())
+    drawKiwiHeader(header, originPx, headerPx, windowPx, frame = false, clipToHeader = false)
+    drawRect(
+        brush = Brush.verticalGradient(
+            0f to Color.Black,
+            ((bottom - fade) / bottom).coerceIn(0f, 1f) to Color.Black,
+            1f to Color.Transparent,
+            endY = bottom,
+        ),
+        size = Size(size.width, bottom),
+        blendMode = BlendMode.DstIn,
+    )
+    drawContext.canvas.restore()
+}
+
+/** A layer's natural box in CSS px: left, top, width, height (before tiling), or null if empty. */
+private fun layerRect(layer: KiwiHeaderLayer, boxW: Float, boxH: Float): FloatArray? {
+    fun natural(nw: Float, nh: Float): Pair<Float, Float> = when {
+        layer.width != null && layer.height != null -> layer.width!! to layer.height!!
+        layer.width != null -> layer.width!! to nh * layer.width!! / nw
+        layer.height != null -> nw * layer.height!! / nh to layer.height!!
+        else -> nw to nh
+    }
+    val (w, h) = when (layer) {
+        is KiwiHeaderLayer.Image -> natural(layer.bitmap.width / layer.pxPerCss, layer.bitmap.height / layer.pxPerCss)
+        is KiwiHeaderLayer.Animated -> natural(
+            layer.drawable.intrinsicWidth / layer.pxPerCss,
+            layer.drawable.intrinsicHeight / layer.pxPerCss,
+        )
+        is KiwiHeaderLayer.Gradient -> (layer.width ?: boxW) to (layer.height ?: boxH)
+    }
+    if (w <= 0f || h <= 0f) return null
+    val (horizontal, vertical) = positionKeywords(layer.alignment)
+    val x0 = when (horizontal) {
+        "right" -> boxW - w
+        "center" -> (boxW - w) / 2
+        else -> 0f
+    }
+    val y0 = when (vertical) {
+        "bottom" -> boxH - h
+        "center" -> (boxH - h) / 2
+        else -> 0f
+    }
+    return floatArrayOf(x0, y0, w, h)
+}
+
 @Suppress("CyclomaticComplexMethod", "LongMethod")
-private fun DrawScope.drawLayer(layer: KiwiHeaderLayer, boxW: Float, boxH: Float, pxPerCss: Float) {
+private fun DrawScope.drawLayer(layer: KiwiHeaderLayer, boxW: Float, boxH: Float, pxPerCss: Float, clipH: Float) {
     fun natural(nw: Float, nh: Float): Pair<Float, Float> = when {
         layer.width != null && layer.height != null -> layer.width!! to layer.height!!
         layer.width != null -> layer.width!! to nh * layer.width!! / nw
@@ -257,7 +436,7 @@ private fun DrawScope.drawLayer(layer: KiwiHeaderLayer, boxW: Float, boxH: Float
     val repeatY = layer.tiling == "repeat" || layer.tiling == "repeat-y"
     val xs = if (repeatX) (floor(-x0 / w).toInt()..ceil((boxW - x0) / w).toInt()).map { x0 + it * w } else listOf(x0)
     val ys = if (repeatY) (floor(-y0 / h).toInt()..ceil((boxH - y0) / h).toInt()).map { y0 + it * h } else listOf(y0)
-    clipRect(0f, 0f, boxW * pxPerCss, boxH * pxPerCss) {
+    clipRect(0f, 0f, boxW * pxPerCss, clipH * pxPerCss) {
         for (x in xs) for (y in ys) {
             val left = x * pxPerCss
             val top = y * pxPerCss

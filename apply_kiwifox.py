@@ -520,6 +520,7 @@ def patch_style_strings(text: str) -> str:
         '    <string name="kiwifox_style_stock">Firefox\\\'s own shapes, font and sizes</string>\n'
         '    <string name="kiwifox_theme_styled">styled</string>\n'
         '    <string name="kiwifox_style_pill">Round address bar</string>\n'
+        '    <string name="kiwifox_style_home_wallpaper">Image themes: artwork behind the homepage</string>\n'
         '    <string name="kiwifox_style_field_radius">Address bar corners</string>\n'
         '    <string name="kiwifox_style_field_height">Address bar height</string>\n'
         '    <string name="kiwifox_style_field_border">Address bar border</string>\n'

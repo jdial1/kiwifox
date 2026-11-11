@@ -20,7 +20,8 @@ import org.json.JSONObject
  *   "fontFamily": "monospace", // an Android font family, see FONT_FAMILIES
  *   "fontFile": "Inter.ttf",   // a font imported into the app (overrides fontFamily in Compose UI)
  *   "textScale": 1.1,          // multiplies the system font scale, 0.8..1.4
- *   "uiScale": 0.9             // multiplies the screen density (desktop devPixelsPerPx), 0.8..1.25
+ *   "uiScale": 0.9,            // multiplies the screen density (desktop devPixelsPerPx), 0.8..1.25
+ *   "homeWallpaper": false     // image themes: header artwork behind the homepage (default true)
  * }
  * ```
  */
@@ -33,6 +34,7 @@ data class KiwiStyleSpec(
     val fontFile: String? = null,
     val textScale: Float? = null,
     val uiScale: Float? = null,
+    val homeWallpaper: Boolean? = null,
 ) {
     val isEmpty: Boolean get() = this == EMPTY
 
@@ -46,6 +48,7 @@ data class KiwiStyleSpec(
         fontFile = top.fontFile ?: fontFile,
         textScale = top.textScale ?: textScale,
         uiScale = top.uiScale ?: uiScale,
+        homeWallpaper = top.homeWallpaper ?: homeWallpaper,
     )
 
     /** The same spec with every value forced into its supported range. */
@@ -58,6 +61,7 @@ data class KiwiStyleSpec(
         fontFile = fontFile?.takeIf { it.isNotBlank() && !it.contains('/') && !it.contains('\\') },
         textScale = textScale?.coerceIn(MIN_TEXT_SCALE, MAX_TEXT_SCALE),
         uiScale = uiScale?.coerceIn(MIN_UI_SCALE, MAX_UI_SCALE),
+        homeWallpaper = homeWallpaper,
     )
 
     fun toJson(): JSONObject {
@@ -70,6 +74,7 @@ data class KiwiStyleSpec(
         fontFile?.let { json.put("fontFile", it) }
         textScale?.let { json.put("textScale", it.toDouble()) }
         uiScale?.let { json.put("uiScale", it.toDouble()) }
+        homeWallpaper?.let { json.put("homeWallpaper", it) }
         return json
     }
 
@@ -83,6 +88,7 @@ data class KiwiStyleSpec(
         fontFile?.let { add("font file: $it") }
         textScale?.let { add("text size ×${fmt(it)}") }
         uiScale?.let { add("interface scale ×${fmt(it)}") }
+        homeWallpaper?.let { add(if (it) "artwork behind the homepage" else "plain homepage") }
     }
 
     companion object {
@@ -120,6 +126,7 @@ data class KiwiStyleSpec(
                 fontFile = s("fontFile"),
                 textScale = f("textScale"),
                 uiScale = f("uiScale"),
+                homeWallpaper = if (obj.has("homeWallpaper") && !obj.isNull("homeWallpaper")) obj.optBoolean("homeWallpaper") else null,
             ).clamped()
         }
 

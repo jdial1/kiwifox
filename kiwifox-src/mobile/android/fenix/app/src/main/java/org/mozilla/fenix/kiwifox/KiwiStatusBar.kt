@@ -24,6 +24,7 @@ import androidx.core.view.WindowInsetsCompat
 import mozilla.components.compose.base.theme.KiwiHeader
 import mozilla.components.compose.base.theme.KiwiHeaderTicker
 import mozilla.components.compose.base.theme.drawKiwiHeader
+import mozilla.components.compose.base.theme.drawKiwiWallpaper
 import androidx.compose.ui.graphics.Canvas as ComposeCanvas
 
 /**
@@ -44,20 +45,15 @@ internal object KiwiStatusBar {
      * bottom of the decor view, sized to the navigation bar inset (zero when the bar is hidden or at
      * the side in landscape, where the content already reaches the edge).
      */
-    fun applyNavigationBar(activity: Activity, color: Int?) {
+    fun applyNavigationBar(activity: Activity, color: Int?, wallpaper: KiwiHeader? = null) {
         val decor = activity.window.decorView as? ViewGroup ?: return
-        var view = decor.findViewWithTag<View>(NAV_TAG)
+        var view = decor.findViewWithTag<NavigationBarView>(NAV_TAG)
         if (color == null) {
             view?.let { decor.removeView(it) }
             return
         }
         if (view == null) {
-            view = View(activity).apply {
-                tag = NAV_TAG
-                isClickable = false
-                isFocusable = false
-                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-            }
+            view = NavigationBarView(activity).apply { tag = NAV_TAG }
             val bottom = ViewCompat.getRootWindowInsets(decor)?.getInsets(WindowInsetsCompat.Type.navigationBars())?.bottom ?: 0
             decor.addView(view, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, bottom, Gravity.BOTTOM))
             ViewCompat.setOnApplyWindowInsetsListener(view) { v, insets ->
@@ -66,7 +62,9 @@ internal object KiwiStatusBar {
                 insets
             }
         }
-        view.setBackgroundColor(color)
+        view.color = color
+        view.wallpaper = wallpaper
+        view.invalidate()
         view.bringToFront()
         ViewCompat.requestApplyInsets(view)
     }
@@ -129,6 +127,34 @@ internal object KiwiStatusBar {
         @Deprecated("Deprecated in Java")
         @Suppress("DEPRECATION")
         override fun getOpacity() = PixelFormat.OPAQUE
+    }
+
+    /** The navigation bar: a color, or the bottom of the homepage wallpaper (blurred artwork). */
+    @SuppressLint("ViewConstructor")
+    private class NavigationBarView(context: Context) : View(context) {
+        var color: Int = 0
+        var wallpaper: KiwiHeader? = null
+        private val scope = CanvasDrawScope()
+        private val location = IntArray(2)
+
+        init {
+            isClickable = false
+            isFocusable = false
+            importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            canvas.drawColor(color)
+            val w = wallpaper ?: return
+            getLocationInWindow(location)
+            val density = Density(context)
+            val statusBarPx = ViewCompat.getRootWindowInsets(this)?.getInsets(WindowInsetsCompat.Type.statusBars())?.top ?: 0
+            val headerPx = statusBarPx + with(density) { KiwiHeader.TOOLBAR_HEIGHT.toPx() }
+            val windowPx = (rootView?.height ?: height).toFloat()
+            scope.draw(density, LayoutDirection.Ltr, ComposeCanvas(canvas), Size(width.toFloat(), height.toFloat())) {
+                drawKiwiWallpaper(w, location[1].toFloat(), headerPx, windowPx, sharp = false)
+            }
+        }
     }
 
     /** Draws [header] with the same code and origin (top of the screen) as the Compose toolbar. */

@@ -6,18 +6,33 @@ package org.mozilla.fenix.kiwifox
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.material.ripple.RippleAlpha
 import androidx.compose.material3.LocalRippleConfiguration
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RippleConfiguration
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
+import mozilla.components.compose.base.theme.KiwiHeader
 import mozilla.components.compose.base.theme.KiwiStyles
 import mozilla.components.compose.base.theme.LocalKiwiDark
+import mozilla.components.compose.base.theme.LocalKiwiStatusBarHeight
+import mozilla.components.compose.base.theme.drawKiwiWallpaper
 
 /**
  * Desktop theme surfaces that Fenix draws with the same Material roles as the toolbar: the new tab
@@ -52,11 +67,33 @@ object KiwiSurfaces {
     @Composable
     fun homeBackground(): Color? = roles()?.let { r -> (r["ntpBackground"] ?: r["background"])?.let(::Color) }
 
-    /** Paints the new tab page background behind the homepage (under any user wallpaper). */
+    /**
+     * Paints the new tab page background behind the homepage (under any user wallpaper). For image
+     * themes it is the header's artwork: continuing below the toolbar where the image reaches, over a
+     * blurred copy of it that fills the rest (Style: "Artwork behind the homepage").
+     */
     @Composable
     fun HomeBackground() {
         val color = homeBackground() ?: return
-        Box(modifier = Modifier.fillMaxSize().background(color))
+        val header = KiwiStyles.chrome()?.header?.takeIf { it.wallpaper && it.hasPicture }
+        if (header == null) {
+            Box(modifier = Modifier.fillMaxSize().background(color))
+            return
+        }
+        val density = LocalDensity.current
+        val statusBarPx = LocalKiwiStatusBarHeight.current?.let { with(density) { it.toPx() } }
+            ?: WindowInsets.statusBars.getTop(density).toFloat()
+        val headerPx = statusBarPx + with(density) { KiwiHeader.TOOLBAR_HEIGHT.toPx() }
+        val windowPx = LocalWindowInfo.current.containerSize.height.toFloat()
+        var top by remember { mutableFloatStateOf(0f) }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(color)
+                .onGloballyPositioned { top = it.positionInWindow().y }
+                .clipToBounds()
+                .drawBehind { drawKiwiWallpaper(header, top, headerPx, maxOf(windowPx, size.height + top)) },
+        )
     }
 
     /** Homepage content in the new tab page colors: `ntp_background`, `ntp_text`, `ntp_card_background`. */
