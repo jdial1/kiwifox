@@ -35,6 +35,41 @@ import androidx.compose.ui.graphics.Canvas as ComposeCanvas
  */
 internal object KiwiStatusBar {
     private const val TAG = "kiwifox-status-bar"
+    private const val NAV_TAG = "kiwifox-navigation-bar"
+
+    /**
+     * Paints the navigation bar (gesture handle or buttons) in [color], or removes the paint when null.
+     * Android 15+ ignores `window.navigationBarColor` for edge-to-edge apps, and Fenix's ThemeManager
+     * resets it to its own surface color, so like the status bar it is a non-interactive view at the
+     * bottom of the decor view, sized to the navigation bar inset (zero when the bar is hidden or at
+     * the side in landscape, where the content already reaches the edge).
+     */
+    fun applyNavigationBar(activity: Activity, color: Int?) {
+        val decor = activity.window.decorView as? ViewGroup ?: return
+        var view = decor.findViewWithTag<View>(NAV_TAG)
+        if (color == null) {
+            view?.let { decor.removeView(it) }
+            return
+        }
+        if (view == null) {
+            view = View(activity).apply {
+                tag = NAV_TAG
+                isClickable = false
+                isFocusable = false
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }
+            val bottom = ViewCompat.getRootWindowInsets(decor)?.getInsets(WindowInsetsCompat.Type.navigationBars())?.bottom ?: 0
+            decor.addView(view, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, bottom, Gravity.BOTTOM))
+            ViewCompat.setOnApplyWindowInsetsListener(view) { v, insets ->
+                val height = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom
+                if (v.layoutParams.height != height) v.layoutParams = v.layoutParams.apply { this.height = height }
+                insets
+            }
+        }
+        view.setBackgroundColor(color)
+        view.bringToFront()
+        ViewCompat.requestApplyInsets(view)
+    }
 
     fun apply(activity: Activity, color: Int?, header: KiwiHeader?) {
         val decor = activity.window.decorView as? ViewGroup ?: return

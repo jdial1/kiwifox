@@ -642,11 +642,18 @@ def patch_firefox_theme_mode(text: str) -> str:
 
 def patch_home_fragment_background(text: str) -> str:
     """Desktop `ntp_background` behind the homepage (a user wallpaper still draws on top, as on desktop)."""
-    return insert_before(
+    text = insert_before(
         text,
         "                        if (!isPrivateMode) {\n                            WallpaperBackground(\n",
         f"                        if (!isPrivateMode) {KIWI_SURFACES}.HomeBackground()\n",
         "HomeFragment wallpaper",
+    )
+    # Fenix sets the system bars from its own theme on every homepage show; put KiwiFox's back.
+    return insert_after(
+        text,
+        "            activity.themeManager.applyStatusBarTheme(activity)\n",
+        "            org.mozilla.fenix.kiwifox.KiwiThemeManager.reapplySystemBarIcons(activity)\n",
+        "HomeFragment system bars",
     )
 
 

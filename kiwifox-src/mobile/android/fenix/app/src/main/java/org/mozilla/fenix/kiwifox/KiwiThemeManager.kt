@@ -284,10 +284,23 @@ object KiwiThemeManager {
         @Suppress("DEPRECATION")
         window.navigationBarColor = surface
         KiwiStatusBar.apply(activity, statusBar, if (private) null else header)
+        // The navigation bar continues the page above it: desktop's new tab page color (the homepage),
+        // else the theme background.
+        val navigationBar = if (private || roles == null) null else roles["ntpBackground"] ?: roles["background"] ?: surface
+        KiwiStatusBar.applyNavigationBar(activity, navigationBar)
         WindowCompat.getInsetsController(window, window.decorView).apply {
             isAppearanceLightStatusBars = ColorUtils.calculateLuminance(statusBar ?: surface) > 0.5
-            isAppearanceLightNavigationBars = ColorUtils.calculateLuminance(surface) > 0.5
+            isAppearanceLightNavigationBars = ColorUtils.calculateLuminance(navigationBar ?: surface) > 0.5
         }
+    }
+
+    /**
+     * Re-asserts the system bar icon colors after Fenix's ThemeManager (called on every homepage
+     * show) set them from its own colors; the painted bars themselves are overlay views it can't reach.
+     */
+    fun reapplySystemBarIcons(activity: Activity) {
+        if (current == null) return
+        applyToActivity(activity)
     }
 
     private fun styleKey() = KEY_STYLE_PREFIX + (current?.id ?: DEFAULT_THEME_KEY)
