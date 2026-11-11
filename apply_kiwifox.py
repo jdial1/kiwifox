@@ -532,6 +532,17 @@ def patch_style_strings(text: str) -> str:
     )
 
 
+def patch_amo_catalog_strings(text: str) -> str:
+    return insert_before(
+        text,
+        '    <string name="kiwifox_catalog_summary">',
+        "    <!-- KiwiFox: section of popular addons.mozilla.org themes on the theme screen -->\n"
+        '    <string name="kiwifox_section_amo">Popular Firefox themes</string>\n'
+        '    <string name="kiwifox_amo_summary">The most-used themes on addons.mozilla.org that convert completely: colors only, no images, readable address bar, and each one looks different.</string>\n',
+        "strings.xml amo catalogue",
+    )
+
+
 KIWI_GROUPS = [
     # (category title string, [preference keys in order]) mirroring Kiwi Browser's Settings sections.
     ("kiwifox_category_basics", ["pref_key_search_settings", "pref_key_home", "pref_key_make_default_browser"]),
@@ -608,6 +619,7 @@ def apply_style_patches(root: Path) -> None:
     patch(root, f"{AC_TOOLBAR}/ui/InlineAutocompleteTextField.kt", patch_inline_autocomplete)
     patch(root, f"{FENIX}/java/org/mozilla/fenix/HomeActivity.kt", patch_home_activity_scale)
     patch(root, f"{FENIX}/res/values/strings.xml", patch_style_strings)
+    patch(root, f"{FENIX}/res/values/strings.xml", patch_amo_catalog_strings)
 
 
 def main() -> None:

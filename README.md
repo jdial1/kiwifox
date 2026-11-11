@@ -55,6 +55,55 @@ Each theme in light (left) and dark (right) mode: the address bar, the edit-mode
 
 ![Materialfox](docs/screenshots/bundled-materialfox.png)
 
+### Popular Firefox themes (addons.mozilla.org)
+
+Listed in the app under *Popular Firefox themes* with an Add button. Picked from the 100 most-used
+AMO static themes (2026-11-10) by `tools/amo_survey.py` + `tools/pick_distinct.py`: no images (Android
+drops them), URL text readable without correction, a visible address field, and at least CIE ΔE 25 from
+every other theme here. `AmoCatalogTest` imports each `.xpi` through the app's importer. They have no
+dark palette, so dark mode looks the same (as on desktop). Mozilla's Nova and Profiles families rank
+higher but are image-based or near-stock tints.
+
+**[Activist – Balanced](https://addons.mozilla.org/en-US/firefox/addon/activist-balanced_/)** · 316,320 users
+
+![Activist – Balanced](docs/screenshots/amo-activist-balanced.png)
+
+**[Visionary – Balanced](https://addons.mozilla.org/en-US/firefox/addon/visionary-balanced/)** · 196,904 users
+
+![Visionary – Balanced](docs/screenshots/amo-visionary-balanced.png)
+
+**[Expressionist – Balanced](https://addons.mozilla.org/en-US/firefox/addon/expressionist-balanced/)** · 103,127 users
+
+![Expressionist – Balanced](docs/screenshots/amo-expressionist-balanced.png)
+
+**[Innovator – Balanced](https://addons.mozilla.org/en-US/firefox/addon/innovator-balanced/)** · 86,019 users
+
+![Innovator – Balanced](docs/screenshots/amo-innovator-balanced.png)
+
+**[Playmaker – Balanced](https://addons.mozilla.org/en-US/firefox/addon/playmaker-balanced/)** · 81,906 users
+
+![Playmaker – Balanced](docs/screenshots/amo-playmaker-balanced.png)
+
+**[Dreamer – Bold](https://addons.mozilla.org/en-US/firefox/addon/dreamer-bold/)** · 54,865 users
+
+![Dreamer – Bold](docs/screenshots/amo-dreamer-bold.png)
+
+**[Cheers – Soft](https://addons.mozilla.org/en-US/firefox/addon/cheers-soft/)** · 45,848 users
+
+![Cheers – Soft](docs/screenshots/amo-cheers-soft.png)
+
+**[Visionary – Bold](https://addons.mozilla.org/en-US/firefox/addon/visionary-bold/)** · 37,011 users
+
+![Visionary – Bold](docs/screenshots/amo-visionary-bold.png)
+
+**[Playmaker – Bold](https://addons.mozilla.org/en-US/firefox/addon/playmaker-bold/)** · 27,452 users
+
+![Playmaker – Bold](docs/screenshots/amo-playmaker-bold.png)
+
+**[Cheers – Bold](https://addons.mozilla.org/en-US/firefox/addon/cheers-bold/)** · 21,395 users
+
+![Cheers – Bold](docs/screenshots/amo-cheers-bold.png)
+
 <details>
 <summary><b>r/FirefoxCSS catalogue themes, as the importer converts them</b> (colors + layout)</summary>
 

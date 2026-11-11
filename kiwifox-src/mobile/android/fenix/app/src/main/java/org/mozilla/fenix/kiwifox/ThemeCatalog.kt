@@ -14,12 +14,39 @@ package org.mozilla.fenix.kiwifox
  * importer says so when "Add" is pressed.
  */
 object ThemeCatalog {
+    /**
+     * @property repoUrl The link the importer resolves (a GitHub repository or an AMO page); also the row's key.
+     * @property stars GitHub stars, for userChrome.css themes.
+     * @property users Average daily users on addons.mozilla.org, for AMO themes.
+     */
     class Entry(
         val name: String,
         val author: String,
         val repoUrl: String,
         val description: String,
-        val stars: Int,
+        val stars: Int = 0,
+        val users: Int = 0,
+    )
+
+    /**
+     * Popular addons.mozilla.org static themes that convert completely (no images, readable URL
+     * text, visible address field) and look distinct from each other and from the bundled themes.
+     * Picked 2026-11-10 from the 100 most-used AMO themes by `tools/amo_survey.py` and
+     * `tools/pick_distinct.py` (CIE dE >= 25 on bar and field colors, in order of daily users).
+     * Mozilla's Nova and Profiles themes rank higher but are near-stock tints or image-based.
+     * These have no separate dark palette, so they look the same in dark mode, as on desktop.
+     */
+    val AMO_ENTRIES: List<Entry> = listOf(
+        Entry("Activist – Balanced", "Firefox", "https://addons.mozilla.org/en-US/firefox/addon/activist-balanced_/", "Mid blue bar, white address field", users = 316320),
+        Entry("Visionary – Balanced", "Firefox", "https://addons.mozilla.org/en-US/firefox/addon/visionary-balanced/", "Fresh green bar, mint-white field", users = 196904),
+        Entry("Expressionist – Balanced", "Firefox", "https://addons.mozilla.org/en-US/firefox/addon/expressionist-balanced/", "Butter yellow bar, cream field", users = 103127),
+        Entry("Innovator – Balanced", "Firefox", "https://addons.mozilla.org/en-US/firefox/addon/innovator-balanced/", "Soft peach bar and field", users = 86019),
+        Entry("Playmaker – Balanced", "Firefox", "https://addons.mozilla.org/en-US/firefox/addon/playmaker-balanced/", "Coral red bar, blush field", users = 81906),
+        Entry("Dreamer – Bold", "Firefox", "https://addons.mozilla.org/en-US/firefox/addon/dreamer-bold/", "Deep purple, white text", users = 54865),
+        Entry("Cheers – Soft", "Firefox", "https://addons.mozilla.org/en-US/firefox/addon/cheers-soft/", "Pale gold bar, saffron field", users = 45848),
+        Entry("Visionary – Bold", "Firefox", "https://addons.mozilla.org/en-US/firefox/addon/visionary-bold/", "Forest green, white text", users = 37011),
+        Entry("Playmaker – Bold", "Firefox", "https://addons.mozilla.org/en-US/firefox/addon/playmaker-bold/", "Maroon, white text", users = 27452),
+        Entry("Cheers – Bold", "Firefox", "https://addons.mozilla.org/en-US/firefox/addon/cheers-bold/", "Charcoal with gold text", users = 21395),
     )
 
     val ENTRIES: List<Entry> = listOf(

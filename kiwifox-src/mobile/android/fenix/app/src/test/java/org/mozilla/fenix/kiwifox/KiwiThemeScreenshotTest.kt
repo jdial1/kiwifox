@@ -90,6 +90,7 @@ class KiwiThemeScreenshotTest {
         shots.add(Shot("firefox-default", null))
         KiwiThemeManager.themes.forEach { shots.add(Shot("bundled-" + it.id.removePrefix("bundled-"), it)) }
         shots.addAll(catalogueThemes())
+        shots.addAll(amoThemes())
 
         var current by mutableStateOf(shots.first())
         var dark by mutableStateOf(false)
@@ -113,6 +114,21 @@ class KiwiThemeScreenshotTest {
             }
         }
         KiwiThemeManager.select(context, null)
+    }
+
+    /** [ThemeCatalog.AMO_ENTRIES] through the app's importer, from KIWIFOX_AMO_DIR/<slug>.xpi. */
+    private fun amoThemes(): List<Shot> {
+        val dir = System.getenv("KIWIFOX_AMO_DIR")?.let(::File) ?: return emptyList()
+        val offline = object : mozilla.components.concept.fetch.Client() {
+            override fun fetch(request: mozilla.components.concept.fetch.Request): mozilla.components.concept.fetch.Response =
+                throw java.io.IOException("offline test")
+        }
+        return ThemeCatalog.AMO_ENTRIES.mapNotNull { entry ->
+            val slug = entry.repoUrl.trimEnd('/').substringAfterLast('/')
+            val xpi = File(dir, "$slug.xpi").takeIf { it.isFile } ?: return@mapNotNull null
+            val theme = ThemeImporter(offline).importFile(xpi.readBytes(), xpi.name).theme
+            Shot("amo-" + slug.trimEnd('_'), theme.copy(id = "amo-$slug", name = entry.name))
+        }
     }
 
     /** Catalogue repos converted exactly as ThemeImporter.fromCss does (colors + layout). */

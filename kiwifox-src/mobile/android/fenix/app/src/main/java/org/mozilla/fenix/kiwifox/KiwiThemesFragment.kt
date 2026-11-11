@@ -335,44 +335,55 @@ private fun KiwiThemesScreen(
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
         }
 
-        item { SectionHeader(stringResource(R.string.kiwifox_section_catalog)) }
-        item {
-            Text(
-                text = stringResource(R.string.kiwifox_catalog_summary),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-            )
-        }
-        items(ThemeCatalog.ENTRIES, key = { it.repoUrl }) { entry ->
-            val installed = entry.repoUrl in installedSources
-            Column {
-                ThemeRow(
-                    name = entry.name,
-                    subtitle = "${entry.author} · ★ ${entry.stars} · ${entry.description}",
-                    swatch = null,
-                    onClick = { if (!installed && catalogBusy == null) onAddCatalog(entry) },
-                    trailing = {
-                        when {
-                            catalogBusy == entry.repoUrl -> CircularProgressIndicator(modifier = Modifier.size(24.dp))
-                            installed -> Text(
-                                text = stringResource(R.string.kiwifox_installed),
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            else -> TextButton(onClick = { onAddCatalog(entry) }, enabled = catalogBusy == null) {
-                                Text(stringResource(R.string.kiwifox_add))
-                            }
-                        }
-                    },
+        // Two catalogues: AMO static themes (convert completely) and r/FirefoxCSS userChrome.css themes.
+        val catalogues = listOf(
+            Triple(R.string.kiwifox_section_amo, R.string.kiwifox_amo_summary, ThemeCatalog.AMO_ENTRIES),
+            Triple(R.string.kiwifox_section_catalog, R.string.kiwifox_catalog_summary, ThemeCatalog.ENTRIES),
+        )
+        for ((titleRes, summaryRes, entries) in catalogues) {
+            item(key = "header-$titleRes") { SectionHeader(stringResource(titleRes)) }
+            item(key = "summary-$titleRes") {
+                Text(
+                    text = stringResource(summaryRes),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
-                catalogStatus[entry.repoUrl]?.let { message ->
-                    Text(
-                        text = message,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.padding(start = 72.dp, end = 16.dp, bottom = 8.dp),
+            }
+            items(entries, key = { it.repoUrl }) { entry ->
+                val installed = entry.repoUrl in installedSources
+                Column {
+                    ThemeRow(
+                        name = entry.name,
+                        subtitle = if (entry.users > 0) {
+                            "${entry.author} · ${"%,d".format(entry.users)} users · ${entry.description}"
+                        } else {
+                            "${entry.author} · ★ ${entry.stars} · ${entry.description}"
+                        },
+                        swatch = null,
+                        onClick = { if (!installed && catalogBusy == null) onAddCatalog(entry) },
+                        trailing = {
+                            when {
+                                catalogBusy == entry.repoUrl -> CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                                installed -> Text(
+                                    text = stringResource(R.string.kiwifox_installed),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                else -> TextButton(onClick = { onAddCatalog(entry) }, enabled = catalogBusy == null) {
+                                    Text(stringResource(R.string.kiwifox_add))
+                                }
+                            }
+                        },
                     )
+                    catalogStatus[entry.repoUrl]?.let { message ->
+                        Text(
+                            text = message,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(start = 72.dp, end = 16.dp, bottom = 8.dp),
+                        )
+                    }
                 }
             }
         }
