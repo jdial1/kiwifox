@@ -26,19 +26,9 @@ class CssThemeExtractorCatalogTest {
         val repos = File(dir).listFiles()?.filter { it.isDirectory }?.sortedBy { it.name } ?: return
         var ok = 0
         for (repo in repos) {
-            val files = repo.walkTopDown()
-                .filter { it.isFile && it.extension == "css" && !it.path.contains("${File.separator}.git${File.separator}") }
-                .sortedBy { it.relativeTo(repo).path.replace('\\', '/') }
-                .sortedBy { if (it.name == "userChrome.css") 0 else 1 }
-                .take(40)
-                .toList()
-            val css = StringBuilder()
-            for (f in files) {
-                css.append("\n/* ${f.relativeTo(repo).path} */\n").append(f.readText())
-                if (css.length > 2 * 1024 * 1024) break
-            }
+            val (css, source) = CatalogTestRepos.css(repo)
             val line = runCatching {
-                val (manifest, notes) = CssThemeExtractor.toManifest(css.toString(), repo.name)
+                val (manifest, notes) = CssThemeExtractor.toManifest(css, repo.name)
                 val converted = ThemeConverter.convert(manifest, repo.name)
                 ok++
                 val light = converted.theme.light
@@ -47,7 +37,7 @@ class CssThemeExtractorCatalogTest {
                     " | dark bar=${hex(dark["surface"])} field=${hex(dark["surfaceContainerHighest"])} text=${hex(dark["onSurface"])}" +
                     " | notes: ${(notes + converted.notes).joinToString(" / ")}"
             }.getOrElse { "FAIL ${it.message}" }
-            println("CATALOG ${repo.name} (${files.size} css): $line")
+            println("CATALOG ${repo.name} ($source): $line")
         }
         println("CATALOG SUMMARY: $ok of ${repos.size} convert")
         assertTrue("no repositories found in $dir", repos.isNotEmpty())

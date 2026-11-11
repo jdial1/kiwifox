@@ -133,22 +133,13 @@ class KiwiThemeScreenshotTest {
 
     /** Catalogue repos converted exactly as ThemeImporter.fromCss does (colors + layout). */
     private fun catalogueThemes(): List<Shot> {
-        val dir = System.getenv("KIWIFOX_CATALOG_DIR") ?: return emptyList()
-        val repos = File(dir).listFiles()?.filter { it.isDirectory }?.sortedBy { it.name } ?: return emptyList()
-        return repos.mapNotNull { repo ->
-            val notGit = { f: File -> !f.path.contains("${File.separator}.git${File.separator}") }
-            val css = StringBuilder()
-            repo.walkTopDown().filter { it.isFile && it.extension == "css" && notGit(it) }
-                .sortedBy { it.relativeTo(repo).path.replace('\\', '/') }
-                .sortedBy { if (it.name == "userChrome.css") 0 else 1 }
-                .take(40)
-                .forEach { if (css.length < 2 * 1024 * 1024) css.append("\n").append(it.readText()) }
-            val userJs = repo.walkTopDown().filter { it.isFile && it.name == "user.js" && notGit(it) }
-                .minByOrNull { it.relativeTo(repo).path.length }?.readText()
+        return CatalogTestRepos.repos().mapNotNull { repo ->
+            val (css, _) = CatalogTestRepos.css(repo)
+            val userJs = CatalogTestRepos.userJs(repo)
             runCatching {
-                val (manifest, _) = CssThemeExtractor.toManifest(css.toString(), repo.name)
+                val (manifest, _) = CssThemeExtractor.toManifest(css, repo.name)
                 val converted = ThemeConverter.convert(manifest, repo.name)
-                val layout = CssStyleExtractor.extract(css.toString(), userJs).style
+                val layout = CssStyleExtractor.extract(css, userJs).style
                 Shot("catalog-" + repo.name.lowercase(), converted.theme.copy(id = "catalog-${repo.name}", style = converted.theme.style.overlay(layout)))
             }.getOrNull()
         }

@@ -78,6 +78,23 @@ class CssStyleExtractorTest {
     }
 
     @Test
+    fun `only what userChrome css imports is read`() {
+        val files = mapOf(
+            "chrome/userChrome.css" to "@import \"includes/colours.css\";\n@import url(includes/dark.css) (prefers-color-scheme: dark);",
+            "chrome/includes/colours.css" to ":root { --toolbar-bgcolor: #fafafc; --toolbar-field-background-color: #dadadc; --toolbar-field-color: #1e2021; }",
+            "chrome/includes/dark.css" to ":root { --toolbar-bgcolor: #1e2021; --toolbar-field-background-color: #191b1c; --toolbar-field-color: #fafafc; }",
+            // Optional palette shipped in the repo but not imported: must not override the theme.
+            "integrations/other/other.css" to ":root { --toolbar-bgcolor: #ff0000 !important; }",
+        )
+        val (css, source) = ThemeImporter.repoCss(files.keys) { files[it] }
+        assertTrue(source, source.startsWith("chrome/userChrome.css"))
+        assertTrue("unimported file was read", !css.contains("#ff0000"))
+        val (manifest, _) = CssThemeExtractor.toManifest(css, "t")
+        assertEquals("#fafafc", manifest.getJSONObject("theme").getJSONObject("colors").getString("frame"))
+        assertEquals("#1e2021", manifest.getJSONObject("dark_theme").getJSONObject("colors").getString("frame"))
+    }
+
+    @Test
     fun `values equal to desktop stock are not emitted`() {
         val css = "#urlbar { min-height: 32px; } #urlbar-background { border: 0 } .tab-background { border-radius: 4px }"
         assertTrue(CssStyleExtractor.extract(css).style.isEmpty)
@@ -148,25 +165,11 @@ class CssStyleExtractorTest {
     /** Prints what each catalogue theme's layout becomes on Android (KIWIFOX_CATALOG_DIR, as in the colors test). */
     @Test
     fun `catalogue layouts`() {
-        val dir = System.getenv("KIWIFOX_CATALOG_DIR") ?: return
-        val repos = File(dir).listFiles()?.filter { it.isDirectory }?.sortedBy { it.name } ?: return
-        for (repo in repos) {
-            val notGit = { f: File -> !f.path.contains("${File.separator}.git${File.separator}") }
-            val files = repo.walkTopDown()
-                .filter { it.isFile && it.extension == "css" && notGit(it) }
-                .sortedBy { it.relativeTo(repo).path.replace('\\', '/') }
-                .sortedBy { if (it.name == "userChrome.css") 0 else 1 }
-                .take(40)
-                .toList()
-            val css = StringBuilder()
-            for (f in files) {
-                css.append("\n/* ${f.relativeTo(repo).path} */\n").append(f.readText())
-                if (css.length > 2 * 1024 * 1024) break
-            }
-            val userJs = repo.walkTopDown().filter { it.isFile && it.name == "user.js" && notGit(it) }
-                .minByOrNull { it.relativeTo(repo).path.count { c -> c == File.separatorChar } }?.readText()
+        for (repo in CatalogTestRepos.repos()) {
+            val (css, _) = CatalogTestRepos.css(repo)
+            val userJs = CatalogTestRepos.userJs(repo)
             val line = runCatching {
-                val result = CssStyleExtractor.extract(css.toString(), userJs)
+                val result = CssStyleExtractor.extract(css, userJs)
                 "${result.style.toJson()} | ${result.notes.joinToString(" / ")}"
             }.getOrElse { "FAIL $it" }
             println("STYLE ${repo.name} (user.js=${userJs != null}): $line")

@@ -130,18 +130,14 @@ class ThemeImporter(private val client: Client) {
             if (manifest != null && manifest.has("theme")) return fromManifest(manifest, repo)
         }
 
-        val cssFiles = files.filter { it.endsWith(".css") }.sortedBy { if (it.endsWith("userChrome.css")) 0 else 1 }.take(MAX_CSS_FILES)
+        val cssFiles = files.filter { it.endsWith(".css") }
         if (cssFiles.isEmpty()) throw ThemeImportException("$owner/$repo contains no .css files or theme manifest")
-        val css = StringBuilder()
-        for (p in cssFiles) {
-            css.append("\n/* $p */\n").append(fetchText(raw(p)))
-            if (css.length > MAX_CSS_BYTES) break
-        }
+        val (css, source) = repoCss(cssFiles) { p -> fetchText(raw(p)) }
         // user.js carries the prefs that change layout on desktop (density, devPixelsPerPx).
         val userJsPath = files.filter { it.endsWith("user.js") }.minByOrNull { it.count { c -> c == '/' } }
         val userJs = userJsPath?.let { runCatching { fetchText(raw(it)) }.getOrNull() }
-        val imported = fromCss(css.toString(), repo, userJs)
-        val read = "read ${cssFiles.size} css file(s)" + (if (userJs != null) " and $userJsPath" else "") + " from $owner/$repo"
+        val imported = fromCss(css, repo, userJs)
+        val read = "read $source" + (if (userJs != null) " and $userJsPath" else "") + " from $owner/$repo"
         return Imported(imported.theme, listOf(read) + imported.notes)
     }
 
@@ -160,8 +156,9 @@ class ThemeImporter(private val client: Client) {
 
     private fun fromZip(bytes: ByteArray, name: String): Imported {
         // A zipped `chrome` folder (how many r/FirefoxCSS themes are released) is read like a repository.
-        val css = StringBuilder()
+        val cssFiles = LinkedHashMap<String, String>()
         var userJs: String? = null
+        var total = 0
         ZipInputStream(ByteArrayInputStream(bytes)).use { zip ->
             while (true) {
                 val entry = zip.nextEntry ?: break
@@ -169,16 +166,19 @@ class ThemeImporter(private val client: Client) {
                 if (entry.name == "manifest.json" || entry.name.endsWith("/manifest.json")) {
                     return fromManifestText(zip.readBytes().toString(Charsets.UTF_8), name)
                 }
-                if (entry.name.endsWith(".css") && css.length < MAX_CSS_BYTES) {
-                    css.append("\n/* ${entry.name} */\n").append(zip.readBytes().toString(Charsets.UTF_8))
+                if (entry.name.endsWith(".css") && total < MAX_CSS_BYTES) {
+                    val text = zip.readBytes().toString(Charsets.UTF_8)
+                    total += text.length
+                    cssFiles[entry.name] = text
                 } else if (entry.name.endsWith("user.js") && userJs == null) {
                     userJs = zip.readBytes().toString(Charsets.UTF_8)
                 }
             }
         }
-        if (css.isNotEmpty()) return fromCss(css.toString(), name, userJs)
+        if (cssFiles.isNotEmpty()) return fromCss(repoCss(cssFiles.keys) { cssFiles[it] }.first, name, userJs)
         throw ThemeImportException("archive has no manifest.json or .css files; this is not a Firefox theme package")
     }
+
 
     private fun fromManifestText(text: String, name: String): Imported {
         val json = runCatching { JSONObject(text) }.getOrElse { throw ThemeImportException("not valid JSON") }
@@ -245,6 +245,26 @@ class ThemeImporter(private val client: Client) {
         url.substringBefore('?').trimEnd('/').substringAfterLast('/').substringBeforeLast('.').ifBlank { "imported theme" }
 
     companion object {
+        /**
+         * The CSS of a userChrome.css theme as desktop loads it: its userChrome.css with imports inlined
+         * ([CssBundler]). Without a userChrome.css, every file is read (userChrome.css-less snippets).
+         * Returns the CSS and a description of what was read.
+         */
+        internal fun repoCss(paths: Collection<String>, read: (String) -> String?): Pair<String, String> {
+            val cache = HashMap<String, String?>()
+            val cached = { p: String -> if (p in paths) cache.getOrPut(p) { runCatching { read(p) }.getOrNull() } else null }
+            CssBundler.findEntry(paths)?.let { entry ->
+                val css = CssBundler.bundle(entry, cached)
+                if (css.isNotBlank()) return css to "$entry and the ${cache.size - 1} file(s) it imports"
+            }
+            val css = StringBuilder()
+            for (p in paths.sorted().take(MAX_CSS_FILES)) {
+                css.append("\n/* $p */\n").append(cached(p) ?: "")
+                if (css.length > MAX_CSS_BYTES) break
+            }
+            return css.toString() to "${minOf(paths.size, MAX_CSS_FILES)} css file(s)"
+        }
+
         private const val MAX_REDIRECT_DEPTH = 3
         private const val MAX_CSS_FILES = 40
         private const val MAX_CSS_BYTES = 2 * 1024 * 1024

@@ -29,6 +29,9 @@ Bundled themes: `theme/kiwi.json`, `theme/cascade.json` (Rosé Pine),
 
 Each theme in light (left) and dark (right) mode: the address bar, the edit-mode address bar, a homepage card with chips and a button, and the main-menu sheet. They are rendered by `KiwiThemeScreenshotTest` with the real android-components toolbar and the patched Firefox/Acorn theme (Robolectric native graphics, 360 dp phone frame), not captured from a device. Regenerate with `run-mach.cmd /f/kiwifox/screenshots.sh` and `python tools/contact_sheets.py F:/kiwifox-dl/shots docs/screenshots`.
 
+How these compare with the same themes on desktop Firefox, and which theme keys are still
+not mapped: [docs/desktop-vs-mobile.md](docs/desktop-vs-mobile.md).
+
 ### Bundled themes
 
 **Firefox default (no theme)**
