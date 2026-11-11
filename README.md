@@ -25,6 +25,82 @@ Bundled themes: `theme/kiwi.json`, `theme/cascade.json` (Rosé Pine),
 `theme/materialfox.json` (light only), `theme/alpenglow.json`.
 `themes-desktop/*.zip` are the same themes as desktop static themes.
 
+## Screenshots
+
+Each theme in light (left) and dark (right) mode: the address bar, the edit-mode address bar, a homepage card with chips and a button, and the main-menu sheet. They are rendered by `KiwiThemeScreenshotTest` with the real android-components toolbar and the patched Firefox/Acorn theme (Robolectric native graphics, 360 dp phone frame), not captured from a device. Regenerate with `run-mach.cmd /f/kiwifox/screenshots.sh` and `python tools/contact_sheets.py F:/kiwifox-dl/shots docs/screenshots`.
+
+### Bundled themes
+
+**Firefox default (no theme)**
+
+![Firefox default (no theme)](docs/screenshots/firefox-default.png)
+
+**Alpenglow**
+
+![Alpenglow](docs/screenshots/bundled-alpenglow.png)
+
+**Cascade**
+
+![Cascade](docs/screenshots/bundled-cascade.png)
+
+**Kiwi**
+
+![Kiwi](docs/screenshots/bundled-kiwi.png)
+
+**Kiwi (Material You green)**
+
+![Kiwi (Material You green)](docs/screenshots/bundled-kiwi-green.png)
+
+**Materialfox**
+
+![Materialfox](docs/screenshots/bundled-materialfox.png)
+
+<details>
+<summary><b>r/FirefoxCSS catalogue themes, as the importer converts them</b> (colors + layout)</summary>
+
+**ArcWTF**
+
+![ArcWTF](docs/screenshots/catalog-arcwtf.png)
+
+**Cascade**
+
+![Cascade](docs/screenshots/catalog-cascade.png)
+
+**FF-ULTIMA**
+
+![FF-ULTIMA](docs/screenshots/catalog-ff-ultima.png)
+
+**Firefox GNOME theme**
+
+![Firefox GNOME theme](docs/screenshots/catalog-firefox-gnome-theme.png)
+
+**Firefox-Mod-Blur**
+
+![Firefox-Mod-Blur](docs/screenshots/catalog-firefox-mod-blur.png)
+
+**Firefox-UI-Fix (Lepton)**
+
+![Firefox-UI-Fix (Lepton)](docs/screenshots/catalog-firefox-ui-fix.png)
+
+**MaterialFox**
+
+![MaterialFox](docs/screenshots/catalog-materialfox.png)
+
+**ShyFox**
+
+![ShyFox](docs/screenshots/catalog-shyfox.png)
+
+**SimpleFox**
+
+![SimpleFox](docs/screenshots/catalog-simplefox.png)
+
+**WaveFox**
+
+![WaveFox](docs/screenshots/catalog-wavefox.png)
+
+</details>
+
+
 ## How the runtime theme works
 
 * `KiwiThemeManager` loads bundled (assets) and imported (`filesDir/kiwifox/themes`)
