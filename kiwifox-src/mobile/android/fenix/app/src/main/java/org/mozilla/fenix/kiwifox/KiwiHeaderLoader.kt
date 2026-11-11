@@ -6,11 +6,18 @@ package org.mozilla.fenix.kiwifox
 
 import android.content.Context
 import android.graphics.BitmapFactory
+import android.graphics.ImageDecoder
+import android.graphics.drawable.Animatable
+import android.graphics.drawable.AnimatedImageDrawable
+import android.graphics.drawable.Drawable
+import android.os.Build
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.compositeOver
 import mozilla.components.compose.base.theme.KiwiHeader
 import mozilla.components.compose.base.theme.KiwiHeaderLayer
+import mozilla.components.compose.base.theme.KiwiHeaderTicker
+import java.nio.ByteBuffer
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
@@ -18,38 +25,79 @@ import kotlin.math.sqrt
 
 /** Turns a theme's stored [KiwiTheme.HeaderSpec] into a drawable [KiwiHeader]: decodes images, parses gradients. */
 internal object KiwiHeaderLoader {
+    /** Decoded headers, so switching modes or re-applying a style does not decode (and animate) twice. */
+    private val cache = HashMap<String, KiwiHeader?>()
+
     fun load(context: Context, theme: KiwiTheme, spec: KiwiTheme.HeaderSpec, frameArgb: Int?): KiwiHeader? {
+        val key = "${theme.id}|${theme.builtIn}|${spec.hashCode()}|$frameArgb"
+        synchronized(cache) {
+            if (cache.containsKey(key)) return cache[key]
+        }
+        return decode(context, theme, spec, frameArgb).also { synchronized(cache) { cache[key] = it } }
+    }
+
+    private fun decode(context: Context, theme: KiwiTheme, spec: KiwiTheme.HeaderSpec, frameArgb: Int?): KiwiHeader? {
         val layers = spec.layers.mapNotNull { layer ->
             val (w, h) = parseSize(layer.size)
             when {
                 layer.file != null -> {
-                    val bitmap = KiwiThemeManager.openThemeFile(context, theme, layer.file)
-                        ?.use { BitmapFactory.decodeStream(it) } ?: return@mapNotNull null
-                    KiwiHeaderLayer.Image(bitmap.asImageBitmap(), layer.pxPerCss, layer.alignment, layer.tiling, w, h)
+                    val bytes = KiwiThemeManager.openThemeFile(context, theme, layer.file)?.use { it.readBytes() }
+                        ?: return@mapNotNull null
+                    imageLayer(bytes, layer, w, h)
                 }
                 layer.gradient != null -> parseGradient(layer.gradient, layer.alignment, layer.tiling, w, h)
+                    ?.copy(windowArea = layer.windowArea)
                 else -> null
             }
         }
         if (layers.isEmpty()) return null
-        val toolbar = spec.toolbar
         val frame = Color(frameArgb ?: 0xFFFFFFFF.toInt())
         return KiwiHeader(
             frame = frame,
             statusBar = statusBarColor(layers, frame),
-            toolbar = Color(
-                red = ((toolbar shr 16) and 0xFF).toInt(),
-                green = ((toolbar shr 8) and 0xFF).toInt(),
-                blue = (toolbar and 0xFF).toInt(),
-                alpha = ((toolbar shr 24) and 0xFF).toInt(),
-            ),
+            toolbar = argbColor(spec.toolbar),
+            field = argbColor(spec.field),
             layers = layers,
         )
     }
 
+    private fun argbColor(argb: Long) = Color(
+        red = ((argb shr 16) and 0xFF).toInt(),
+        green = ((argb shr 8) and 0xFF).toInt(),
+        blue = (argb and 0xFF).toInt(),
+        alpha = ((argb shr 24) and 0xFF).toInt(),
+    )
+
+    /**
+     * A header image: animated APNG (KiwiFox's decoder), GIF or WebP (Android's [ImageDecoder]) as a
+     * self-animating drawable ticking through [KiwiHeaderTicker]; anything else as a still bitmap.
+     */
+    private fun imageLayer(bytes: ByteArray, layer: KiwiTheme.LayerSpec, w: Float?, h: Float?): KiwiHeaderLayer? {
+        val animated: Drawable? = ApngDecoder.decode(bytes)?.let { ApngDrawable(it) } ?: decodeAnimated(bytes)
+        if (animated != null) {
+            animated.callback = KiwiHeaderTicker
+            (animated as? Animatable)?.start()
+            return KiwiHeaderLayer.Animated(animated, layer.pxPerCss, layer.alignment, layer.tiling, w, h, layer.windowArea)
+        }
+        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
+        return KiwiHeaderLayer.Image(bitmap.asImageBitmap(), layer.pxPerCss, layer.alignment, layer.tiling, w, h, layer.windowArea)
+    }
+
+    /** GIF / animated WebP through [ImageDecoder] (Android 9+); null for still images or on failure. */
+    private fun decodeAnimated(bytes: ByteArray): Drawable? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return null
+        val gif = bytes.size > 6 && String(bytes, 0, 3, Charsets.US_ASCII) == "GIF"
+        val webp = bytes.size > 12 && String(bytes, 8, 4, Charsets.US_ASCII) == "WEBP"
+        if (!gif && !webp) return null
+        val drawable = runCatching { ImageDecoder.decodeDrawable(ImageDecoder.createSource(ByteBuffer.wrap(bytes))) }
+            .getOrNull() as? AnimatedImageDrawable ?: return null
+        drawable.repeatCount = AnimatedImageDrawable.REPEAT_INFINITE
+        return drawable
+    }
+
     /** Where desktop Firefox 159's tab strip is measured: [STATUS_BAR_Y_CSS] px down, across the middle. */
     private const val STATUS_BAR_Y_CSS = 6f
-    private const val HEADER_WIDTH_CSS = 240f // a 360 dp phone at 1.5 dp per CSS px
+    private const val HEADER_WIDTH_CSS = 360f // a 360 dp phone at KiwiHeader.DP_PER_CSS_PX
 
     /**
      * The header's color where desktop shows its tab strip, for the Android status bar: [frame] with each

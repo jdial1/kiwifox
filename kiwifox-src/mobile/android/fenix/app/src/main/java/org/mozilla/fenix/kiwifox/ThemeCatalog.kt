@@ -36,6 +36,20 @@ object ThemeCatalog {
      * Mozilla's Nova and Profiles themes rank higher but are near-stock tints or image-based.
      * These have no separate dark palette, so they look the same in dark mode, as on desktop.
      */
+    /**
+     * Popular addons.mozilla.org themes whose look is artwork: header images, animated images (APNG, GIF)
+     * and window-wide gradients, drawn across the status bar and toolbar as desktop draws them across the
+     * tab strip and toolbar. Rendered and compared with desktop Firefox 159 on 2026-11-11.
+     */
+    val AMO_IMAGE_ENTRIES: List<Entry> = listOf(
+        Entry("Ash", "Firefox", "https://addons.mozilla.org/en-US/firefox/addon/nova-ash/", "Firefox's Nova theme: a soft window-wide gradient", users = 319372),
+        Entry("Dark space", "Nicothin", "https://addons.mozilla.org/en-US/firefox/addon/nicothin-space/", "Animated starfield (GIF)", users = 98209),
+        Entry("Spirited Away (Animated)", "Max", "https://addons.mozilla.org/en-US/firefox/addon/spirited-away-animated/", "Animated Haku over a teal sky (APNG)", users = 28373),
+        Entry("Praise the sun (animated)", "anon", "https://addons.mozilla.org/en-US/firefox/addon/praisethesun/", "Animated knights at both ends of the bar (APNG)", users = 29830),
+        Entry("Nyan Cat (Animated)", "Jnue", "https://addons.mozilla.org/en-US/firefox/addon/nyan-cat-animated/", "Nyan Cat and rainbow over a starfield", users = 27450),
+        Entry("Blue Nebula Space Theme", "eartharoid", "https://addons.mozilla.org/en-US/firefox/addon/blue-nebula-space-theme/", "Nebula photo across the whole header", users = 16351),
+    )
+
     val AMO_ENTRIES: List<Entry> = listOf(
         Entry("Activist – Balanced", "Firefox", "https://addons.mozilla.org/en-US/firefox/addon/activist-balanced_/", "Mid blue bar, white address field", users = 316320),
         Entry("Visionary – Balanced", "Firefox", "https://addons.mozilla.org/en-US/firefox/addon/visionary-balanced/", "Fresh green bar, mint-white field", users = 196904),

@@ -337,6 +337,7 @@ private fun KiwiThemesScreen(
 
         // Two catalogues: AMO static themes (convert completely) and r/FirefoxCSS userChrome.css themes.
         val catalogues = listOf(
+            Triple(R.string.kiwifox_section_amo_images, R.string.kiwifox_amo_images_summary, ThemeCatalog.AMO_IMAGE_ENTRIES),
             Triple(R.string.kiwifox_section_amo, R.string.kiwifox_amo_summary, ThemeCatalog.AMO_ENTRIES),
             Triple(R.string.kiwifox_section_catalog, R.string.kiwifox_catalog_summary, ThemeCatalog.ENTRIES),
         )

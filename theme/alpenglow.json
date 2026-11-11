@@ -26,6 +26,11 @@
     "popupBorder": "#655B87",
     "fieldBorderFocus": "#AC70FF",
     "frame": "#FFC999",
+    "tabSelected": "#FFF2E7",
+    "tabText": "#20123B",
+    "tabBackgroundText": "#20123B",
+    "tabLine": "#AC70FF",
+    "icons": "#5A2ACB",
     "iconsAttention": "#00A3A3"
   },
   "dark": {
@@ -54,12 +59,17 @@
     "popupBorder": "#69608F",
     "fieldBorderFocus": "#AC70FF",
     "frame": "#291D4F",
+    "tabSelected": "#3C1F7B",
+    "tabText": "#E8E0FF",
+    "tabBackgroundText": "#E8E0FF",
+    "tabLine": "#AC70FF",
     "icons": "#C68AFF",
     "iconsAttention": "#52FFBD"
   },
   "header": {
     "light": {
       "toolbar": "#C1FFFFFF",
+      "field": "#CCFFFFFF",
       "layers": [
         {
           "file": "light-0-background-noodles-right.png",
@@ -85,6 +95,7 @@
     },
     "dark": {
       "toolbar": "#F4281D4E",
+      "field": "#FF2D245B",
       "layers": [
         {
           "file": "dark-0-background-noodles-right-dark.png",

@@ -61,6 +61,7 @@ object ThemeConverter {
         "ntp_background", "ntp_text", "ntp_card_background",
         "popup", "popup_text", "popup_highlight", "popup_highlight_text", "popup_border",
         "icons", "icons_attention",
+        "tab_selected", "tab_text", "tab_background_text", "textcolor", "tab_line", "toolbar_text", "bookmark_text",
     )
 
     /** Raster formats Android decodes. SVG is not among them; the importer drops SVG layers and says so. */
@@ -126,8 +127,15 @@ object ThemeConverter {
         if (dropped.isNotEmpty()) notes.add("dropped (no Android surface): ${dropped.joinToString(", ")}")
 
         val hasDark = darkColors != null && darkColors.length() > 0
-        val light = schemeFromColors(colors, notes, "light")
-        val dark = if (hasDark) schemeFromColors(darkColors, notes, "dark") else light
+        val hasImages = (themeObj.optJSONObject("images")?.length() ?: 0) > 0
+        val light = schemeFromColors(colors, notes, "light", hasImages)
+        // Without dark_theme, desktop shows the same theme colors in dark mode, but the surfaces the theme
+        // leaves unset (new tab page, menus) follow the system's dark mode, so the defaults are recomputed.
+        val dark = if (hasDark) {
+            schemeFromColors(darkColors, notes, "dark", darkObj.optJSONObject("images") != null)
+        } else {
+            schemeFromColors(colors, ArrayList(), "dark", hasImages)
+        }
 
         // Header images: the light block's, and the dark block's when it has its own.
         val pending = LinkedHashMap<String, ByteArray>()
@@ -159,14 +167,27 @@ object ThemeConverter {
      * [notes] says so. Unset new tab, menu and focus colors take desktop's defaults ([DesktopDefaults]).
      */
     @Suppress("LongMethod", "CyclomaticComplexMethod")
-    fun schemeFromColors(colors: JSONObject, notes: MutableList<String> = ArrayList(), mode: String = ""): Map<String, Int> {
+    fun schemeFromColors(
+        colors: JSONObject,
+        notes: MutableList<String> = ArrayList(),
+        mode: String = "",
+        hasHeaderImage: Boolean = false,
+    ): Map<String, Int> {
         fun get(key: String): Rgba? {
             if (!colors.has(key) || colors.isNull(key)) return null
             val value = colors.get(key)
             if (value is String && value.isBlank()) return null
             return parseColor(key, value)
         }
-        fun defaultsFor(surface: Rgba) = if (surface.luminance() < 0.18) DESKTOP_DARK else DESKTOP_LIGHT
+        fun defaults(dark: Boolean) = if (dark) DESKTOP_DARK else DESKTOP_LIGHT
+        val systemDark = mode == "dark"
+
+        /** Desktop's light/dark decision for a surface from its (background, text) pair, else the system's. */
+        fun surfaceDark(background: Rgba?, text: Rgba?): Boolean = when {
+            background != null && background.a >= 1.0 -> isDesktopDark(background)
+            text != null -> !isDesktopDark(text)
+            else -> systemDark
+        }
 
         val frameRaw = get("frame")
         val frame = if (frameRaw == null || frameRaw.a == 0.0) WHITE else frameRaw.opaque()
@@ -195,7 +216,17 @@ object ThemeConverter {
         roles["surfaceContainerHighest"] = field.argb()
         for (role in listOf("onBackground", "onSurface", "onSurfaceVariant")) roles[role] = fieldText.argb()
 
-        val barDefaults = defaultsFor(bar)
+        // Desktop's _isToolbarDark: opaque toolbar, else toolbar_text, else an opaque frame with no header
+        // image, else textcolor (default black, i.e. light).
+        val toolbarRaw = get("toolbar")
+        val toolbarText = get("toolbar_text") ?: get("bookmark_text")
+        val toolbarDark = when {
+            toolbarRaw != null && toolbarRaw.a >= 1.0 -> isDesktopDark(toolbarRaw)
+            toolbarText != null -> !isDesktopDark(toolbarText)
+            !hasHeaderImage && frameRaw != null && frameRaw.a >= 1.0 -> isDesktopDark(frameRaw)
+            else -> get("textcolor")?.let { !isDesktopDark(it) } ?: false
+        }
+        val barDefaults = defaults(toolbarDark)
         val focusRaw = get("toolbar_field_border_focus")
         focusRaw?.takeIf { it.a > 0.0 }?.over(bar)?.let {
             roles["primary"] = it.argb()
@@ -207,16 +238,17 @@ object ThemeConverter {
         get("toolbar_field_text_focus")?.let { roles["fieldTextFocus"] = it.over(fieldFocus ?: field).argb() }
 
         // New tab page (desktop about:newtab). Unset keys: desktop's own new tab colors.
-        val ntpRaw = get("ntp_background")
-        val ntp = ntpRaw?.over(barDefaults.ntpBackground) ?: barDefaults.ntpBackground
-        val ntpDefaults = defaultsFor(ntp)
+        // Desktop drops ntp_background's alpha.
+        val ntpRaw = get("ntp_background")?.opaque()
+        val ntpDefaults = defaults(surfaceDark(ntpRaw, get("ntp_text")))
+        val ntp = ntpRaw ?: ntpDefaults.ntpBackground
         roles["ntpBackground"] = ntp.argb()
         roles["ntpText"] = (get("ntp_text")?.over(ntp) ?: ntpDefaults.text).argb()
         roles["ntpCard"] = (get("ntp_card_background")?.over(ntp) ?: ntpDefaults.card).argb()
 
         // Menus and the address bar dropdown (desktop popups). Unset keys: desktop's own popup colors.
-        val popup = get("popup")?.over(barDefaults.popup) ?: barDefaults.popup
-        val popupDefaults = defaultsFor(popup)
+        val popupDefaults = defaults(surfaceDark(get("popup"), get("popup_text")))
+        val popup = get("popup")?.over(popupDefaults.popup) ?: popupDefaults.popup
         val popupText = get("popup_text")?.over(popup) ?: popupDefaults.text
         roles["popup"] = popup.argb()
         roles["popupText"] = popupText.argb()
@@ -235,7 +267,18 @@ object ThemeConverter {
 
         // Desktop's tab strip color: shown above the toolbar, so on Android it colors the status bar.
         roles["frame"] = frame.argb()
-        get("icons")?.let { roles["icons"] = it.over(bar).argb() }
+
+        // Tabs (desktop's tab strip; Android's tab tray). Unset: desktop's defaults, the selected tab in the
+        // toolbar color with the toolbar's text, other tabs' text readable on the frame.
+        val tabSelected = get("tab_selected")?.over(bar) ?: bar
+        roles["tabSelected"] = tabSelected.argb()
+        roles["tabText"] = (get("tab_text")?.over(tabSelected) ?: fieldText.takeIf { contrast(it, tabSelected) >= MIN_TEXT_CONTRAST }
+            ?: listOf(BLACK, WHITE).maxBy { contrast(it, tabSelected) }).argb()
+        roles["tabBackgroundText"] = ((get("tab_background_text") ?: get("textcolor"))?.over(frame)
+            ?: listOf(BLACK, WHITE).maxBy { contrast(it, frame) }).argb()
+        get("tab_line")?.takeIf { it.a > 0.0 }?.let { roles["tabLine"] = it.over(tabSelected).argb() }
+        // Desktop's icon color defaults to toolbar_text.
+        (get("icons") ?: toolbarText)?.let { roles["icons"] = it.over(bar).argb() }
         get("icons_attention")?.let { roles["iconsAttention"] = it.over(bar).argb() }
         return roles
     }
@@ -262,7 +305,9 @@ object ThemeConverter {
             return if (i < arr.length()) arr.optString(i, default) else default
         }
         val layers = ArrayList<KiwiTheme.LayerSpec>()
-        fun imageLayer(path: String, alignment: String, tiling: String, size: String) {
+        // Firefox 159: backgrounds_area "window" sizes the additional backgrounds to the whole window.
+        val windowArea = props?.optString("backgrounds_area") == "window"
+        fun imageLayer(path: String, alignment: String, tiling: String, size: String, window: Boolean = false) {
             val clean = path.removePrefix("./").removePrefix("/")
             val bytes = files[clean] ?: files.entries.firstOrNull { it.key.endsWith("/$clean") }?.value
             if (bytes == null) {
@@ -288,7 +333,11 @@ object ThemeConverter {
             val fileName = "$mode-${layers.size}-${clean.substringAfterLast('/').substringBeforeLast('.')
                 .replace(Regex("[^A-Za-z0-9_-]"), "_")}.$fileExt"
             pending[fileName] = data
-            layers.add(KiwiTheme.LayerSpec(file = fileName, alignment = alignment, tiling = tiling, size = size, pxPerCss = pxPerCss))
+            layers.add(
+                KiwiTheme.LayerSpec(
+                    file = fileName, alignment = alignment, tiling = tiling, size = size, pxPerCss = pxPerCss, windowArea = window,
+                ),
+            )
         }
         images.optString("theme_frame").ifBlank { images.optString("headerURL") }.takeIf { it.isNotBlank() }?.let {
             imageLayer(it, "right top", "no-repeat", "auto")
@@ -301,9 +350,14 @@ object ThemeConverter {
                 val size = propAt("additional_backgrounds_size", i, "auto")
                 val entry = extra.get(i)
                 if (entry is JSONObject && entry.has("linear-gradient")) {
-                    layers.add(KiwiTheme.LayerSpec(gradient = entry.getString("linear-gradient"), alignment = alignment, tiling = tiling, size = size))
+                    layers.add(
+                        KiwiTheme.LayerSpec(
+                            gradient = entry.getString("linear-gradient"), alignment = alignment, tiling = tiling,
+                            size = size, windowArea = windowArea,
+                        ),
+                    )
                 } else if (entry is String) {
-                    imageLayer(entry, alignment, tiling, size)
+                    imageLayer(entry, alignment, tiling, size, windowArea)
                 }
             }
         }
@@ -312,10 +366,16 @@ object ThemeConverter {
         val frame = if (frameRaw == null || frameRaw.a == 0.0) WHITE else frameRaw.opaque()
         val toolbar = colors.opt("toolbar")?.let { runCatching { parseColor("toolbar", it) }.getOrNull() }
             ?: Rgba(frame.r, frame.g, frame.b, 0.0)
-        val alpha = (toolbar.a * 255).toLong().coerceIn(0, 255)
-        val argb = (alpha shl 24) or (toolbar.r.toLong() shl 16) or (toolbar.g.toLong() shl 8) or toolbar.b.toLong()
-        return KiwiTheme.HeaderSpec(argb, layers)
+        fun argb(c: Rgba): Long =
+            ((c.a * 255).toLong().coerceIn(0, 255) shl 24) or (c.r.toLong() shl 16) or (c.g.toLong() shl 8) or c.b.toLong()
+        // The address field keeps its alpha too: desktop shows the header through a translucent field.
+        val field = colors.opt("toolbar_field")?.let { runCatching { parseColor("toolbar_field", it) }.getOrNull() }
+            ?: DESKTOP_FIELD_FALLBACK
+        return KiwiTheme.HeaderSpec(argb(toolbar), layers, argb(field))
     }
+
+    /** Firefox's _isColorDark (LightweightThemeConsumer): 0.2125 r + 0.7154 g + 0.0721 b <= 127. */
+    fun isDesktopDark(c: Rgba): Boolean = 0.2125 * c.r + 0.7154 * c.g + 0.0721 * c.b <= 127
 
     fun contrast(a: Rgba, b: Rgba): Double {
         val la = a.luminance()

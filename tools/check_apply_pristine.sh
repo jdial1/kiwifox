@@ -32,6 +32,7 @@ $FENIX/java/org/mozilla/fenix/home/HomeFragment.kt
 $FENIX/java/org/mozilla/fenix/home/ui/Homepage.kt
 $FENIX/java/org/mozilla/fenix/components/menu/compose/MenuDialogBottomSheet.kt
 $FENIX/java/org/mozilla/fenix/search/awesomebar/AwesomeBarComposable.kt
+$FENIX/java/org/mozilla/fenix/tabstray/ui/TabManagementFragment.kt
 "
 for f in $FILES; do
   mkdir -p "$TMP/$(dirname "$f")"

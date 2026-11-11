@@ -32,11 +32,12 @@ data class KiwiTheme(
     val pendingFiles: Map<String, ByteArray> = emptyMap(),
 ) {
     /**
-     * A desktop header for one mode: [toolbar] is desktop `toolbar` with its alpha (#AARRGGBB), painted
-     * over [layers]. Each layer has either a [LayerSpec.file] (an image in the theme folder) or a
-     * [LayerSpec.gradient] (the body of a CSS `linear-gradient(...)`).
+     * A desktop header for one mode: [toolbar] and [field] are desktop `toolbar` and `toolbar_field` with
+     * their alpha (#AARRGGBB), painted over [layers]. Each layer has either a [LayerSpec.file] (an image in
+     * the theme folder) or a [LayerSpec.gradient] (the body of a CSS `linear-gradient(...)`);
+     * [LayerSpec.windowArea] marks layers sized to the whole window (`backgrounds_area: window`).
      */
-    data class HeaderSpec(val toolbar: Long, val layers: List<LayerSpec>)
+    data class HeaderSpec(val toolbar: Long, val layers: List<LayerSpec>, val field: Long = DESKTOP_FIELD_FALLBACK)
 
     data class LayerSpec(
         val file: String? = null,
@@ -45,6 +46,7 @@ data class KiwiTheme(
         val tiling: String = "no-repeat",
         val size: String = "auto",
         val pxPerCss: Float = 1f,
+        val windowArea: Boolean = false,
     )
 
     /** Returns [scheme] with this theme's roles for the requested mode replaced. */
@@ -83,9 +85,16 @@ data class KiwiTheme(
                     l.gradient?.let { o.put("gradient", it) }
                     o.put("alignment", l.alignment).put("tiling", l.tiling).put("size", l.size)
                     if (l.pxPerCss != 1f) o.put("pxPerCss", l.pxPerCss.toDouble())
+                    if (l.windowArea) o.put("windowArea", true)
                     layers.put(o)
                 }
-                h.put(mode, JSONObject().put("toolbar", String.format("#%08X", spec.toolbar and 0xFFFFFFFFL)).put("layers", layers))
+                h.put(
+                    mode,
+                    JSONObject()
+                        .put("toolbar", String.format("#%08X", spec.toolbar and 0xFFFFFFFFL))
+                        .put("field", String.format("#%08X", spec.field and 0xFFFFFFFFL))
+                        .put("layers", layers),
+                )
             }
             json.put("header", h)
         }
@@ -112,11 +121,15 @@ data class KiwiTheme(
          * `ntp_card_background`, `popup`, `popup_text`, `popup_highlight`, `popup_highlight_text`,
          * `popup_border`, `frame`, `icons`, `icons_attention`.
          */
+        /** Desktop's address field where `toolbar_field` is unset: rgba(255, 255, 255, 0.8). */
+        const val DESKTOP_FIELD_FALLBACK = 0xCCFFFFFFL
+
         val EXTRA_ROLES = listOf(
             "fieldBorder", "fieldBorderFocus", "fieldFocus", "fieldTextFocus",
             "ntpBackground", "ntpText", "ntpCard",
             "popup", "popupText", "popupHighlight", "popupHighlightText", "popupBorder",
             "frame", "icons", "iconsAttention",
+            "tabSelected", "tabText", "tabBackgroundText", "tabLine",
         )
 
         fun fromJson(id: String, text: String, builtIn: Boolean, fallbackName: String): KiwiTheme {
@@ -142,8 +155,10 @@ data class KiwiTheme(
             val out = LinkedHashMap<String, HeaderSpec>()
             for (mode in listOf("light", "dark")) {
                 val m = obj.optJSONObject(mode) ?: continue
-                val toolbar = m.optString("toolbar").removePrefix("#")
-                val argb = if (toolbar.length == 8) toolbar.toLong(16) else 0L
+                fun argb(key: String, default: Long): Long =
+                    m.optString(key).removePrefix("#").takeIf { it.length == 8 }?.toLong(16) ?: default
+                val argb = argb("toolbar", 0L)
+                val field = argb("field", DESKTOP_FIELD_FALLBACK)
                 val arr = m.optJSONArray("layers") ?: org.json.JSONArray()
                 val layers = (0 until arr.length()).map { i ->
                     val l = arr.getJSONObject(i)
@@ -154,9 +169,10 @@ data class KiwiTheme(
                         tiling = l.optString("tiling", "no-repeat"),
                         size = l.optString("size", "auto"),
                         pxPerCss = l.optDouble("pxPerCss", 1.0).toFloat(),
+                        windowArea = l.optBoolean("windowArea", false),
                     )
                 }
-                out[mode] = HeaderSpec(argb, layers)
+                out[mode] = HeaderSpec(argb, layers, field)
             }
             return out
         }

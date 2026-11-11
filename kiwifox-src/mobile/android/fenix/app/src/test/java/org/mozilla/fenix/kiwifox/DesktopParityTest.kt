@@ -12,6 +12,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import java.io.File
+import java.util.zip.ZipFile
 
 /** Desktop theme keys beyond the toolbar: new tab page, popups, frame, icons, focus, header images. */
 @RunWith(RobolectricTestRunner::class)
@@ -53,10 +55,14 @@ class DesktopParityTest {
         assertEquals("#FFFFFF", hex(light["popup"]))
         assertEquals("#764EDD", hex(light["fieldBorderFocus"]))
         assertNull(light["icons"])
-        val dark = ThemeConverter.convert(
+        val darkTheme = ThemeConverter.convert(
             JSONObject("""{"theme":{"colors":{"frame":"#1E2021","toolbar_field":"#1E2021","toolbar_field_text":"#FAFAFC"}}}"""),
             "d",
-        ).theme.light
+        ).theme
+        // Unset new tab / popup colors follow the system mode on desktop, not the theme's darkness.
+        assertEquals("#F7F6FB", hex(darkTheme.light["ntpBackground"]))
+        assertEquals("#B89CFF", hex(darkTheme.light["fieldBorderFocus"])) // ring follows the (dark) toolbar
+        val dark = darkTheme.dark
         assertEquals("#131215", hex(dark["ntpBackground"]))
         assertEquals("#171519", hex(dark["popup"]))
         assertEquals("#FBFBFE", hex(dark["popupText"]))
@@ -134,6 +140,51 @@ class DesktopParityTest {
         val color = KiwiHeaderLoader.statusBarColor(listOf(gradient), androidx.compose.ui.graphics.Color(0xFFFFC999.toInt()))
         // Desktop 159 measured #FF86B0 at the top of Alpenglow's tab strip.
         assertEquals("#FF8AAF", hex(color.toArgb()))
+    }
+
+    @Test
+    fun `tab keys map to the tab tray, with desktop defaults`() {
+        val themed = ThemeConverter.convert(
+            JSONObject("""{"theme":{"colors":{"frame":"#2E1056","toolbar":"#44296B","toolbar_field_text":"#FFFFFF",
+              "tab_selected":"#24123B","tab_text":"#FFFFFF","tab_background_text":"#DDDDDD","tab_line":"#00DDFF"}}}"""),
+            "t",
+        ).theme.light
+        assertEquals("#24123B", hex(themed["tabSelected"]))
+        assertEquals("#FFFFFF", hex(themed["tabText"]))
+        assertEquals("#DDDDDD", hex(themed["tabBackgroundText"]))
+        assertEquals("#00DDFF", hex(themed["tabLine"]))
+        // Unset: selected tab in the toolbar color, text readable on it and on the frame, no line.
+        val plain = ThemeConverter.convert(JSONObject("""{"theme":{"colors":{"frame":"#14367B","toolbar":"#3E66B6"}}}"""), "p").theme.light
+        assertEquals("#3E66B6", hex(plain["tabSelected"]))
+        assertEquals("#FFFFFF", hex(plain["tabBackgroundText"]))
+        assertNull(plain["tabLine"])
+    }
+
+    @Test
+    fun `header keeps the translucent field and window-area backgrounds`() {
+        val manifest = JSONObject(
+            """{"theme":{"colors":{"frame":"#FCFBFF","toolbar":[255,255,255,0.4],"toolbar_field":"rgba(255, 255, 255, 0.5)"},
+              "images":{"additional_backgrounds":[{"linear-gradient":"135deg, #ECF3F8 0%, #CDE1EE 100%"}]},
+              "properties":{"backgrounds_area":"window"}}}""",
+        )
+        val spec = ThemeConverter.convert(manifest, "n").theme.header.getValue("light")
+        assertEquals(0x66FFFFFFL, spec.toolbar)
+        assertEquals(0x7FFFFFFFL, spec.field)
+        assertTrue(spec.layers.single().windowArea)
+        val back = KiwiTheme.fromJson("x", ThemeConverter.convert(manifest, "n").theme.toJson(), false, "x")
+        assertEquals(spec, back.header.getValue("light"))
+    }
+
+    @Test
+    fun `animated PNG themes decode to frames`() {
+        val dir = System.getenv("KIWIFOX_AMO_DIR")?.let { File(it) } ?: return
+        val xpi = File(dir, "sleeping-miku-animated.xpi").takeIf { it.isFile } ?: return
+        val bytes = ZipFile(xpi).use { z -> z.getInputStream(z.getEntry("miku2.png")).readBytes() }
+        assertTrue(ApngDecoder.isApng(bytes))
+        val frames = ApngDecoder.decode(bytes)!!
+        assertEquals(16, frames.bitmaps.size)
+        assertEquals(240, frames.bitmaps.first().width)
+        assertTrue(frames.delaysMs.all { it >= 20 })
     }
 
     @Test

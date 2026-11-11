@@ -820,6 +820,40 @@ def patch_inline_autocomplete_focus_text(text: str) -> str:
     )
 
 
+def patch_display_field_over_header(text: str) -> str:
+    """Desktop `toolbar_field` keeps its alpha over the header: the artwork shows through the address field."""
+    return replace_once(
+        text,
+        "                                color = MaterialTheme.colorScheme.surfaceContainerHighest,\n"
+        "                                shape = KiwiStyles.fieldShape,\n",
+        "                                color = KiwiStyles.fieldColor(MaterialTheme.colorScheme.surfaceContainerHighest),\n"
+        "                                shape = KiwiStyles.fieldShape,\n",
+        "FullDisplayToolbar field over header",
+    )
+
+
+def patch_amo_image_strings(text: str) -> str:
+    return insert_before(
+        text,
+        '    <string name="kiwifox_section_amo">',
+        "    <!-- KiwiFox: section of popular image / animated addons.mozilla.org themes on the theme screen -->\n"
+        '    <string name="kiwifox_section_amo_images">Popular image themes</string>\n'
+        '    <string name="kiwifox_amo_images_summary">The most-used themes on addons.mozilla.org whose look is artwork, including animated ones. The artwork runs across the status bar and toolbar, as it runs across the tab strip and toolbar on desktop.</string>\n',
+        "strings.xml amo image catalogue",
+    )
+
+
+def patch_tabs_tray_scope(text: str) -> str:
+    """The tab tray in desktop's tab strip colors (tab_selected, tab_text, tab_background_text, tab_line)."""
+    return replace_once(
+        text,
+        "        trackersBlockedCount: Int?,\n    ) {\n        val tabGroupDotColors = tabGroupDotColors()\n        TabsTray(\n",
+        f"        trackersBlockedCount: Int?,\n    ) = {KIWI_SURFACES}.TabsScope {{\n"
+        "        val tabGroupDotColors = tabGroupDotColors()\n        TabsTray(\n",
+        "TabManagementFragment RenderTabsTray",
+    )
+
+
 def apply_parity_patches(root: Path) -> None:
     """Desktop surfaces beyond the toolbar: new tab page, menus and dropdown, header images, icons, focus field.
     Separate so an applied tree can take just these (`apply_kiwifox.py --parity-only <tree>`)."""
@@ -832,6 +866,9 @@ def apply_parity_patches(root: Path) -> None:
     patch(root, f"{AC_TOOLBAR}/ui/FullDisplayToolbar.kt", patch_browser_actions_attention)
     patch(root, f"{AC_TOOLBAR}/BrowserEditToolbar.kt", patch_edit_toolbar_focus_field)
     patch(root, f"{AC_TOOLBAR}/ui/InlineAutocompleteTextField.kt", patch_inline_autocomplete_focus_text)
+    patch(root, f"{AC_TOOLBAR}/ui/FullDisplayToolbar.kt", patch_display_field_over_header)
+    patch(root, f"{FENIX}/java/org/mozilla/fenix/tabstray/ui/TabManagementFragment.kt", patch_tabs_tray_scope)
+    patch(root, f"{FENIX}/res/values/strings.xml", patch_amo_image_strings)
 
 
 def apply_style_patches(root: Path) -> None:

@@ -174,6 +174,10 @@ object KiwiStyles {
     @Composable
     fun iconColor(): Color? = chrome()?.icons?.takeIf { it != Color.Unspecified }
 
+    /** Address field background: the theme's translucent field color over its header, or [default]. */
+    @Composable
+    fun fieldColor(default: Color): Color = chrome()?.header?.field ?: default
+
     /** Toolbar background: the theme's translucent toolbar color over its header, or [default]. */
     @Composable
     fun toolbarColor(default: Color): Color = chrome()?.header?.toolbar ?: default

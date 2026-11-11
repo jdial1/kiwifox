@@ -32,7 +32,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
+import mozilla.components.compose.base.theme.KiwiHeader
+import mozilla.components.compose.base.theme.KiwiStyles
+import mozilla.components.compose.base.theme.LocalKiwiStatusBarHeight
+import mozilla.components.compose.base.theme.drawKiwiHeader
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onRoot
@@ -104,13 +110,20 @@ class KiwiThemeScreenshotTest {
         shots.add(Shot("firefox-default", null))
         KiwiThemeManager.themes.forEach { shots.add(Shot("bundled-" + it.id.removePrefix("bundled-"), it)) }
         shots.addAll(catalogueThemes())
-        shots.addAll(amoThemes())
+        shots.addAll(amoThemes(context))
+        option(outDir, "only")?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }?.let { only ->
+            shots.retainAll { shot -> only.any { shot.label.startsWith(it) } }
+        }
 
         var current by mutableStateOf(shots.first())
         var dark by mutableStateOf(false)
         compose.setContent {
             FirefoxTheme(theme = if (dark) Theme.Dark else Theme.Light) {
-                ScaledByStyle { Sample(current.theme?.name ?: "Firefox default", dark) }
+                ScaledByStyle {
+                    CompositionLocalProvider(LocalKiwiStatusBarHeight provides STATUS_BAR) {
+                        Sample(current.theme?.name ?: "Firefox default", dark)
+                    }
+                }
             }
         }
         for (shot in shots) {
@@ -134,19 +147,34 @@ class KiwiThemeScreenshotTest {
         KiwiThemeManager.select(context, null)
     }
 
-    /** [ThemeCatalog.AMO_ENTRIES] through the app's importer, from KIWIFOX_AMO_DIR/<slug>.xpi. */
-    private fun amoThemes(): List<Shot> {
+    /**
+     * [ThemeCatalog.AMO_ENTRIES] plus KIWIFOX_EXTRA_AMO slugs, through the app's importer from
+     * KIWIFOX_AMO_DIR/<slug>.xpi, saved like a user import so header images are on disk.
+     */
+    private fun amoThemes(context: Context): List<Shot> {
         val dir = System.getenv("KIWIFOX_AMO_DIR")?.let(::File) ?: return emptyList()
         val offline = object : mozilla.components.concept.fetch.Client() {
             override fun fetch(request: mozilla.components.concept.fetch.Request): mozilla.components.concept.fetch.Response =
                 throw java.io.IOException("offline test")
         }
-        return ThemeCatalog.AMO_ENTRIES.mapNotNull { entry ->
-            val slug = entry.repoUrl.trimEnd('/').substringAfterLast('/')
+        val entries = ThemeCatalog.AMO_ENTRIES.map { it.repoUrl.trimEnd('/').substringAfterLast('/') to it.name } +
+            (option(File(System.getenv("KIWIFOX_SHOT_DIR") ?: "."), "extra_amo")?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }?.map { it to it }
+                ?: emptyList())
+        return entries.mapNotNull { (slug, name) ->
             val xpi = File(dir, "$slug.xpi").takeIf { it.isFile } ?: return@mapNotNull null
             val theme = ThemeImporter(offline).importFile(xpi.readBytes(), xpi.name).theme
-            Shot("amo-" + slug.trimEnd('_'), theme.copy(id = "amo-$slug", name = entry.name))
+            Shot("amo-" + slug.trimEnd('_'), KiwiThemeManager.saveImported(context, theme.copy(name = name)))
         }
+    }
+
+    /**
+     * Run options from `shots.properties` next to the output folder (`only`, `extra_amo`). A file, not
+     * environment variables: Gradle's long-lived daemon keeps the environment it started with.
+     */
+    private fun option(outDir: File, key: String): String? {
+        val file = File(outDir.absoluteFile.parentFile, "shots.properties").takeIf { it.isFile } ?: return null
+        val props = java.util.Properties().apply { file.inputStream().use { load(it) } }
+        return props.getProperty(key)?.trim()?.ifEmpty { null }
     }
 
     /** Catalogue repos converted exactly as ThemeImporter.fromCss does (colors + layout). */
@@ -180,6 +208,9 @@ private fun ScaledByStyle(content: @Composable () -> Unit) {
 }
 
 private val noEvent = object : BrowserToolbarEvent {}
+
+/** Height of the status bar stand-in (a typical phone status bar). */
+private val STATUS_BAR = 24.dp
 
 private val displayState = DisplayState(
     browserActionsStart = listOf(
@@ -222,9 +253,18 @@ private fun Sample(name: String, dark: Boolean) {
         BrowserToolbarStore(BrowserToolbarState(mode = Mode.EDIT, editState = EditState(query = BrowserToolbarQuery("firefox themes"))))
     }
     Column(modifier = Modifier.width(360.dp).background(colors.background)) {
-        // Status bar: KiwiThemeManager.applyToActivity paints it in the theme's frame color.
+        // Status bar: KiwiStatusBar draws the header's top band (or a flat color), origin at the screen top.
+        val header = KiwiStyles.chrome()?.header
+        val statusBarFill = if (header != null) {
+            val windowPx = LocalWindowInfo.current.containerSize.height.toFloat()
+            Modifier.drawBehind {
+                drawKiwiHeader(header, 0f, STATUS_BAR.toPx() + KiwiHeader.TOOLBAR_HEIGHT.toPx(), windowPx)
+            }
+        } else {
+            Modifier.background(KiwiSurfaces.statusBarColor(colors.surface))
+        }
         Box(
-            Modifier.fillMaxWidth().height(24.dp).background(KiwiSurfaces.statusBarColor(colors.surface)).padding(horizontal = 12.dp),
+            Modifier.fillMaxWidth().height(STATUS_BAR).then(statusBarFill).padding(horizontal = 12.dp),
             contentAlignment = Alignment.CenterStart,
         ) {
             Text("$name · ${if (dark) "dark" else "light"}", style = FirefoxTheme.typography.caption, color = colors.onSurface)

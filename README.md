@@ -58,6 +58,38 @@ not mapped: [docs/desktop-vs-mobile.md](docs/desktop-vs-mobile.md).
 
 ![Materialfox](docs/screenshots/bundled-materialfox.png)
 
+### Popular image themes (addons.mozilla.org)
+
+Listed in the app under *Popular image themes*. Most of desktop's most-used themes are artwork:
+header images, animated APNG / GIF, or a window-wide gradient. KiwiFox draws the theme header as one
+band across the status bar and toolbar (desktop: tab strip and toolbar), behind the theme's
+translucent toolbar and address field, and plays animated images. Each image: desktop Firefox 159
+on top, KiwiFox below, light and dark.
+
+**[Ash](https://addons.mozilla.org/en-US/firefox/addon/nova-ash/)** · 319,372 users · Firefox's Nova gradient, sized to the whole window (`backgrounds_area: window`)
+
+![Ash](docs/compare/image-nova-ash.png)
+
+**[Dark space](https://addons.mozilla.org/en-US/firefox/addon/nicothin-space/)** · 98,209 users · animated GIF starfield
+
+![Dark space](docs/compare/image-dark-space.png)
+
+**[Spirited Away (Animated)](https://addons.mozilla.org/en-US/firefox/addon/spirited-away-animated/)** · 28,373 users · animated APNG across the header
+
+![Spirited Away (Animated)](docs/compare/image-spirited-away.png)
+
+**[Praise the sun (animated)](https://addons.mozilla.org/en-US/firefox/addon/praisethesun/)** · 29,830 users · animated APNG knights at both ends, colored field border, green icons
+
+![Praise the sun (animated)](docs/compare/image-praisethesun.png)
+
+**[Nyan Cat (Animated)](https://addons.mozilla.org/en-US/firefox/addon/nyan-cat-animated/)** · 27,450 users · Nyan Cat and rainbow over a repeating starfield
+
+![Nyan Cat (Animated)](docs/compare/image-nyan-cat.png)
+
+**[Blue Nebula Space Theme](https://addons.mozilla.org/en-US/firefox/addon/blue-nebula-space-theme/)** · 16,351 users · nebula photo repeated across the header
+
+![Blue Nebula Space Theme](docs/compare/image-blue-nebula.png)
+
 ### Popular Firefox themes (addons.mozilla.org)
 
 Listed in the app under *Popular Firefox themes* with an Add button. Picked from the 100 most-used

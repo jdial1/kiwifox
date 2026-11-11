@@ -236,7 +236,7 @@ object KiwiThemeManager {
         window.statusBarColor = statusBar ?: surface
         @Suppress("DEPRECATION")
         window.navigationBarColor = surface
-        KiwiStatusBar.apply(activity, statusBar)
+        KiwiStatusBar.apply(activity, statusBar, if (private) null else header)
         WindowCompat.getInsetsController(window, window.decorView).apply {
             isAppearanceLightStatusBars = ColorUtils.calculateLuminance(statusBar ?: surface) > 0.5
             isAppearanceLightNavigationBars = ColorUtils.calculateLuminance(surface) > 0.5

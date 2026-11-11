@@ -20,7 +20,10 @@
     "popupHighlight": "#EFEFEF",
     "popupHighlightText": "#15141A",
     "fieldBorderFocus": "#764EDD",
-    "frame": "#FAF4ED"
+    "frame": "#FAF4ED",
+    "tabSelected": "#FAF4ED",
+    "tabText": "#575279",
+    "tabBackgroundText": "#000000"
   },
   "dark": {
     "background": "#191724",
@@ -42,7 +45,10 @@
     "popupHighlight": "#272529",
     "popupHighlightText": "#FBFBFE",
     "fieldBorderFocus": "#B89CFF",
-    "frame": "#191724"
+    "frame": "#191724",
+    "tabSelected": "#191724",
+    "tabText": "#E0DEF4",
+    "tabBackgroundText": "#FFFFFF"
   },
   "style": {
     "cornerScale": 2

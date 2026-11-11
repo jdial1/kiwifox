@@ -4,8 +4,21 @@
 
 package mozilla.components.compose.base.theme
 
+import android.graphics.drawable.Drawable
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
+import android.view.View
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
@@ -16,42 +29,57 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.dp
+import java.util.WeakHashMap
 import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.roundToInt
 
 /**
- * KiwiFox: a desktop theme header (frame color plus `theme_frame` / `additional_backgrounds` layers)
- * drawn behind the Android toolbar, which then paints the theme's [toolbar] color over it, as desktop
- * paints `toolbar` over the header in the navigator toolbox.
+ * KiwiFox: a desktop theme header (frame color plus `theme_frame` / `additional_backgrounds` layers).
  *
- * Geometry follows desktop CSS in CSS px: each layer is placed by its `background-position`
- * ([KiwiHeaderLayer.alignment]) and repeated by its `background-repeat` ([KiwiHeaderLayer.tiling])
- * in a header box as wide as the toolbar whose top is the desktop window top. Desktop's toolbar
- * starts [TOOLBAR_TOP_CSS] below that (under the tab strip), so the Android toolbar shows the same
- * slice of the header that desktop's toolbar shows. One CSS px is [DP_PER_CSS_PX] dp, the scale
- * KiwiFox uses everywhere (32 px desktop bar = 48 dp field).
+ * Desktop paints the header across the top of the window (tab strip and toolbar, 85 CSS px in Firefox
+ * 159) and the theme's `toolbar` color over its lower part. On Android the same band is the status bar
+ * plus the toolbar: both draw this header in one coordinate system whose origin is the top of the
+ * screen, so the artwork runs continuously from the status bar into the toolbar, and the toolbar paints
+ * [toolbar] (usually translucent) and the address field [field] over it.
  *
- * @property frame Desktop `frame`: painted under the layers (and used for the status bar).
- * @property toolbar Desktop `toolbar` with its alpha, painted over the layers by the toolbar itself.
+ * Geometry follows desktop CSS: each layer is placed by `background-position` ([KiwiHeaderLayer.alignment])
+ * and repeated by `background-repeat` ([KiwiHeaderLayer.tiling]) in a box as wide as the screen and as
+ * tall as the header (status bar + toolbar), or as tall as the screen for `backgrounds_area: window`.
+ * One CSS px is [DP_PER_CSS_PX] dp: desktop's 85 px header then matches a phone's status bar + toolbar.
+ *
+ * @property frame Desktop `frame`, painted under the layers.
+ * @property toolbar Desktop `toolbar` with its alpha, painted over the header by the toolbar.
+ * @property field Desktop `toolbar_field` with its alpha, the address field over the header.
  * @property layers Top-most first, in manifest order.
- * @property statusBar The header's color where desktop's tab strip is, for the status bar (null = [frame]).
+ * @property statusBar A single color for the status bar where it can't draw the header, null = [frame].
  */
 data class KiwiHeader(
     val frame: Color,
     val toolbar: Color,
+    val field: Color,
     val layers: List<KiwiHeaderLayer>,
     val statusBar: Color? = null,
 ) {
-    companion object {
-        /** Height of desktop Firefox 159's tab strip: the toolbar's top in header coordinates. */
-        const val TOOLBAR_TOP_CSS = 44f
+    val animated: Boolean get() = layers.any { it is KiwiHeaderLayer.Animated }
 
-        /** Desktop CSS px to Android dp. */
-        const val DP_PER_CSS_PX = 1.5f
+    companion object {
+        /** Desktop CSS px to Android dp for header artwork. */
+        const val DP_PER_CSS_PX = 1f
+
+        /** The toolbar's height below the status bar, part of the header box. */
+        val TOOLBAR_HEIGHT: Dp = 64.dp
     }
 }
 
@@ -62,14 +90,16 @@ data class KiwiHeader(
  * @property tiling CSS `background-repeat`: `no-repeat`, `repeat`, `repeat-x`, `repeat-y`.
  * @property width Layer width in CSS px, or null for natural / full width.
  * @property height Layer height in CSS px, or null for natural / full height.
+ * @property windowArea Sized to the whole screen instead of the header (`backgrounds_area: window`).
  */
 sealed class KiwiHeaderLayer {
     abstract val alignment: String
     abstract val tiling: String
     abstract val width: Float?
     abstract val height: Float?
+    abstract val windowArea: Boolean
 
-    /** An image; [pxPerCss] is image pixels per CSS px (pre-rasterized SVGs are stored at a higher scale). */
+    /** A still image; [pxPerCss] is image pixels per CSS px (pre-rasterized SVGs use a higher scale). */
     data class Image(
         val bitmap: ImageBitmap,
         val pxPerCss: Float,
@@ -77,6 +107,21 @@ sealed class KiwiHeaderLayer {
         override val tiling: String,
         override val width: Float? = null,
         override val height: Float? = null,
+        override val windowArea: Boolean = false,
+    ) : KiwiHeaderLayer()
+
+    /**
+     * An animated image (APNG, GIF, animated WebP) as a self-animating [Drawable] whose intrinsic size is
+     * in image pixels. Its callback is [KiwiHeaderTicker], which redraws every header on each frame.
+     */
+    data class Animated(
+        val drawable: Drawable,
+        val pxPerCss: Float,
+        override val alignment: String,
+        override val tiling: String,
+        override val width: Float? = null,
+        override val height: Float? = null,
+        override val windowArea: Boolean = false,
     ) : KiwiHeaderLayer()
 
     /**
@@ -91,10 +136,51 @@ sealed class KiwiHeaderLayer {
         override val tiling: String,
         override val width: Float? = null,
         override val height: Float? = null,
+        override val windowArea: Boolean = false,
     ) : KiwiHeaderLayer()
 }
 
-/** Draws [KiwiHeader] behind [content] when the theme in effect has one; otherwise just [content]. */
+/**
+ * Drives animated header layers: the [Drawable.Callback] of every animated layer. Each new frame bumps
+ * [tick] (Compose headers read it while drawing, so they redraw) and invalidates registered views (the
+ * status bar), keeping status bar and toolbar on the same frame.
+ */
+object KiwiHeaderTicker : Drawable.Callback {
+    private val handler = Handler(Looper.getMainLooper())
+    private val views = WeakHashMap<View, Unit>()
+
+    var tick by mutableIntStateOf(0)
+        private set
+
+    fun register(view: View) {
+        views[view] = Unit
+    }
+
+    override fun invalidateDrawable(who: Drawable) {
+        tick++
+        views.keys.forEach { it.postInvalidateOnAnimation() }
+    }
+
+    override fun scheduleDrawable(who: Drawable, what: Runnable, `when`: Long) {
+        handler.postAtTime(what, who, `when`)
+    }
+
+    override fun unscheduleDrawable(who: Drawable, what: Runnable) {
+        handler.removeCallbacks(what, who)
+    }
+
+    /** Milliseconds for frame-based drawables. */
+    fun now(): Long = SystemClock.uptimeMillis()
+}
+
+/** Status bar height for the header box; the screenshot harness provides its stand-in's height. */
+val LocalKiwiStatusBarHeight = staticCompositionLocalOf<Dp?> { null }
+
+/**
+ * Draws the theme's header behind [content] when the theme in effect has one; otherwise just [content].
+ * The header's origin is the top of the screen, so a toolbar under the status bar continues the
+ * artwork the status bar shows. A toolbar elsewhere (bottom toolbar) shows the band below the status bar.
+ */
 @Composable
 fun KiwiHeaderBox(content: @Composable () -> Unit) {
     val header = KiwiStyles.chrome()?.header
@@ -102,32 +188,57 @@ fun KiwiHeaderBox(content: @Composable () -> Unit) {
         content()
         return
     }
-    Box(modifier = Modifier.clipToBounds().drawBehind { drawHeader(header) }) { content() }
+    val density = LocalDensity.current
+    val statusBarPx = LocalKiwiStatusBarHeight.current?.let { with(density) { it.toPx() } }
+        ?: WindowInsets.statusBars.getTop(density).toFloat()
+    val toolbarPx = with(density) { KiwiHeader.TOOLBAR_HEIGHT.toPx() }
+    val windowPx = LocalWindowInfo.current.containerSize.height.toFloat()
+    var top by remember { mutableFloatStateOf(statusBarPx) }
+    Box(
+        modifier = Modifier
+            .onGloballyPositioned { top = it.positionInWindow().y }
+            .clipToBounds()
+            .drawBehind {
+                // Under the status bar: continue its band. Anywhere else: the band just below the status bar.
+                val origin = if (top <= statusBarPx + toolbarPx) top else statusBarPx
+                drawKiwiHeader(header, origin, statusBarPx + toolbarPx, maxOf(windowPx, size.height))
+            },
+    ) { content() }
 }
 
-private fun DrawScope.drawHeader(header: KiwiHeader) {
+/**
+ * Draws [header] into this scope, which shows the band from [originPx] (distance from the top of the
+ * screen) downwards. [headerPx] is the header box height (status bar + toolbar), [windowPx] the screen
+ * height (for `backgrounds_area: window` layers).
+ */
+fun DrawScope.drawKiwiHeader(header: KiwiHeader, originPx: Float, headerPx: Float, windowPx: Float) {
+    // Reading the ticker makes this draw pass observe it, so animated headers redraw on each frame.
+    if (header.animated && KiwiHeaderTicker.tick < 0) return
     drawRect(header.frame)
     val pxPerCss = density * KiwiHeader.DP_PER_CSS_PX
     val boxW = size.width / pxPerCss
-    val boxH = KiwiHeader.TOOLBAR_TOP_CSS + size.height / pxPerCss
-    translate(top = -KiwiHeader.TOOLBAR_TOP_CSS * pxPerCss) {
-        for (layer in header.layers.asReversed()) drawLayer(layer, boxW, boxH, pxPerCss)
+    translate(top = -originPx) {
+        for (layer in header.layers.asReversed()) {
+            val boxH = (if (layer.windowArea) windowPx else headerPx) / pxPerCss
+            drawLayer(layer, boxW, boxH, pxPerCss)
+        }
     }
 }
 
-@Suppress("CyclomaticComplexMethod")
+@Suppress("CyclomaticComplexMethod", "LongMethod")
 private fun DrawScope.drawLayer(layer: KiwiHeaderLayer, boxW: Float, boxH: Float, pxPerCss: Float) {
+    fun natural(nw: Float, nh: Float): Pair<Float, Float> = when {
+        layer.width != null && layer.height != null -> layer.width!! to layer.height!!
+        layer.width != null -> layer.width!! to nh * layer.width!! / nw
+        layer.height != null -> nw * layer.height!! / nh to layer.height!!
+        else -> nw to nh
+    }
     val (w, h) = when (layer) {
-        is KiwiHeaderLayer.Image -> {
-            val nw = layer.bitmap.width / layer.pxPerCss
-            val nh = layer.bitmap.height / layer.pxPerCss
-            when {
-                layer.width != null && layer.height != null -> layer.width to layer.height
-                layer.width != null -> layer.width to nh * layer.width / nw
-                layer.height != null -> nw * layer.height / nh to layer.height
-                else -> nw to nh
-            }
-        }
+        is KiwiHeaderLayer.Image -> natural(layer.bitmap.width / layer.pxPerCss, layer.bitmap.height / layer.pxPerCss)
+        is KiwiHeaderLayer.Animated -> natural(
+            layer.drawable.intrinsicWidth / layer.pxPerCss,
+            layer.drawable.intrinsicHeight / layer.pxPerCss,
+        )
         is KiwiHeaderLayer.Gradient -> (layer.width ?: boxW) to (layer.height ?: boxH)
     }
     if (w <= 0f || h <= 0f) return
@@ -144,16 +255,8 @@ private fun DrawScope.drawLayer(layer: KiwiHeaderLayer, boxW: Float, boxH: Float
     }
     val repeatX = layer.tiling == "repeat" || layer.tiling == "repeat-x"
     val repeatY = layer.tiling == "repeat" || layer.tiling == "repeat-y"
-    val xs = if (repeatX) {
-        (floor(-x0 / w).toInt()..ceil((boxW - x0) / w).toInt()).map { x0 + it * w }
-    } else {
-        listOf(x0)
-    }
-    val ys = if (repeatY) {
-        (floor(-y0 / h).toInt()..ceil((boxH - y0) / h).toInt()).map { y0 + it * h }
-    } else {
-        listOf(y0)
-    }
+    val xs = if (repeatX) (floor(-x0 / w).toInt()..ceil((boxW - x0) / w).toInt()).map { x0 + it * w } else listOf(x0)
+    val ys = if (repeatY) (floor(-y0 / h).toInt()..ceil((boxH - y0) / h).toInt()).map { y0 + it * h } else listOf(y0)
     clipRect(0f, 0f, boxW * pxPerCss, boxH * pxPerCss) {
         for (x in xs) for (y in ys) {
             val left = x * pxPerCss
@@ -167,6 +270,13 @@ private fun DrawScope.drawLayer(layer: KiwiHeaderLayer, boxW: Float, boxH: Float
                     dstOffset = IntOffset(left.roundToInt(), top.roundToInt()),
                     dstSize = IntSize(size.width.roundToInt(), size.height.roundToInt()),
                 )
+                is KiwiHeaderLayer.Animated -> drawIntoCanvas { canvas ->
+                    layer.drawable.setBounds(
+                        left.roundToInt(), top.roundToInt(),
+                        (left + size.width).roundToInt(), (top + size.height).roundToInt(),
+                    )
+                    layer.drawable.draw(canvas.nativeCanvas)
+                }
                 is KiwiHeaderLayer.Gradient -> drawRect(
                     brush = gradientBrush(layer, left, top, size),
                     topLeft = Offset(left, top),

@@ -24,6 +24,8 @@ Each sheet: desktop new tab, address bar dropdown and Settings on the left; Kiwi
 
 The rule throughout: a key the theme sets uses the theme's color; a key it leaves unset uses what
 desktop Firefox 159 shows by default (measured, or read from its design tokens), not the toolbar color.
+Whether that default is light or dark follows Firefox's own LightweightThemeConsumer logic: an opaque
+background decides, else the text color, else the system's light / dark mode (KiwiFox's mode).
 
 | Desktop | Theme keys | KiwiFox |
 |---|---|---|
@@ -33,7 +35,8 @@ desktop Firefox 159 shows by default (measured, or read from its design tokens),
 | Tab strip above the toolbar | `frame`, header images | the status bar: the header's color at that height (Alpenglow's gradient), else `frame`; a userChrome.css theme that leaves the tab strip alone gets desktop's default strip (#F6EEFA / #372A3E). Android 15+ ignores `statusBarColor`, so a view sized to the status bar inset paints it |
 | Focus ring | `toolbar_field_border_focus` | a 3 dp ring (desktop's 2 px) while editing, composited over the typing field like desktop; an explicitly transparent value means no ring (Cascade). Default #764EDD / #B89CFF |
 | Toolbar button icons | `icons`, `icons_attention` | the toolbar's browser actions (home, tabs, menu); icons inside the address field keep the field text color, as on desktop |
-| Header images | `theme_frame`, `additional_backgrounds` (+ `_alignment`, `_tiling`, `_size`), `linear-gradient` entries | drawn behind the toolbar with the theme's translucent `toolbar` color on top, positioned and repeated per desktop CSS, showing the slice desktop's toolbar shows. PNG/JPEG/GIF/WebP import as is; SVG can't be decoded on Android, so bundled themes ship pre-rendered PNGs (`tools/rasterize_svg.py`) and imported SVG layers are dropped with a note |
+| Header images | `theme_frame`, `additional_backgrounds` (+ `_alignment`, `_tiling`, `_size`), `linear-gradient` entries, `backgrounds_area` | one band across the status bar and the toolbar, drawn from the top of the screen as desktop draws it from the top of the window (1 dp per desktop px: desktop's 85 px tab strip + toolbar is a phone's status bar + toolbar), behind the theme's translucent `toolbar` and `toolbar_field` colors, positioned and repeated per desktop CSS; `backgrounds_area: window` layers are sized to the screen. Animated APNG (KiwiFox's decoder), GIF and animated WebP play. SVG can't be decoded on Android: bundled themes ship pre-rendered PNGs, imported SVG layers are dropped with a note |
+| Tabs | `tab_selected`, `tab_text`, `tab_background_text`, `tab_line` | the tab tray: background in the tab strip color, the selected tab in `tab_selected` / `tab_text`, other tabs as a light tint of their text, `tab_line` as the accent |
 
 ## Measured (dominant pixel color per region)
 
@@ -59,12 +62,12 @@ desktop Firefox 159 shows by default (measured, or read from its design tokens),
 | dreamer-bold dark | dropdown | #24123B | #24123B | 0.0 |
 | dreamer-bold dark | focus ring | #0AA0C4 | #0BA0C4 | 0.0 |
 | dreamer-bold dark | field while typing | #24123B | #24123B | 0.0 |
-| alpenglow light | status bar / tab strip | #FF86B0 | #FF8AAF | 2.8 |
+| alpenglow light | status bar / tab strip | #FF86B0 | #FC4CA0 | 25.1 |
 | alpenglow light | new tab background | #F9F9FB | #F9F9FB | 0.0 |
 | alpenglow light | dropdown | #291B43 | #281D4E | 6.1 |
 | alpenglow light | focus ring | #AC70FF | #AC70FF | 0.0 |
 | alpenglow light | field while typing | #291B42 | #281D4E | 6.7 |
-| alpenglow dark | status bar / tab strip | #21133C | #21133C | 0.0 |
+| alpenglow dark | status bar / tab strip | #21133C | #321C64 | 20.1 |
 | alpenglow dark | new tab background | #2A2A2E | #2A2A2E | 0.0 |
 | alpenglow dark | dropdown | #31285E | #2D245B | 2.0 |
 | alpenglow dark | focus ring | #AC70FF | #AC70FF | 0.0 |
@@ -80,12 +83,14 @@ desktop Firefox 159 shows by default (measured, or read from its design tokens),
 | cascade dark | focus ring | #171519 | #171519 | 0.0 |
 | cascade dark | field while typing | #171519 | #171519 | 0.0 |
 
-34 of 40 pairs are within ΔE 1 (identical to the eye). The rest:
+33 of 40 pairs are within ΔE 1 (identical to the eye). The rest:
 
 * **Alpenglow light dropdown / typing field, ΔE 6–7:** KiwiFox draws the theme's declared `popup`
   (hsla(254, 46%, 21%) = #281D4E) exactly; desktop renders its results panel slightly differently.
-* **Status bar, ΔE 2–5:** desktop's tab strip is a horizontal gradient (the default strip, and
-  Alpenglow's header); the Android status bar takes one color from it.
+* **Status bar, ΔE 2–5:** desktop's default tab strip (Cascade) is a horizontal gradient; the Android
+  status bar takes one color from it.
+* **Alpenglow status bar, ΔE 20–25:** the status bar now draws Alpenglow's header itself; on a phone its
+  corner artwork covers the measured middle (see Image and animated themes).
 
 Toolbar icons: Alpenglow dark's `icons` violet (#C68AFF) appears on the KiwiFox toolbar buttons and
 on desktop's, and in neither in light mode (Alpenglow sets no light `icons`).
@@ -93,14 +98,47 @@ on desktop's, and in neither in light mode (Alpenglow sets no light `icons`).
 Not themed (stock Firefox, no theme selected) rows are not listed: those compare Firefox for
 Android's own design with desktop's, not a theme mapping.
 
+## Image and animated themes
+
+Most of desktop's most-used themes are artwork, not colors. Desktop Firefox 159 on top, KiwiFox
+below (status bar, toolbar, top of the homepage), light and dark:
+
+**Ash** (319,372 users): Firefox's Nova gradient, sized to the whole window (`backgrounds_area: window`)
+
+![Ash](compare/image-nova-ash.png)
+
+**Dark space** (98,209 users): animated GIF starfield
+
+![Dark space](compare/image-dark-space.png)
+
+**Spirited Away (Animated)** (28,373 users): animated APNG across the header
+
+![Spirited Away (Animated)](compare/image-spirited-away.png)
+
+**Praise the sun (animated)** (29,830 users): animated APNG knights at both ends, colored field border, green icons
+
+![Praise the sun (animated)](compare/image-praisethesun.png)
+
+**Nyan Cat (Animated)** (27,450 users): Nyan Cat and rainbow over a repeating starfield
+
+![Nyan Cat (Animated)](compare/image-nyan-cat.png)
+
+**Blue Nebula Space Theme** (16,351 users): nebula photo repeated across the header
+
+![Blue Nebula Space Theme](compare/image-blue-nebula.png)
+
+On a 360 dp phone the header is about a third as wide as a desktop window, so artwork anchored to both
+corners (Alpenglow's noodles, the Praise the sun knights) covers more of the band; that is why Alpenglow's
+status bar no longer measures as its gradient color in the table above. In the off-device renders GIF and
+animated WebP layers (Android's AnimatedImageDrawable) do not draw; APNG does (KiwiFox's own decoder).
+
 ## Still different, and why
 
 * **Layout-only CSS.** Cascade's one-line layout (address bar left of the tabs) and other tab strip,
   sidebar and button-placement rules have no Android counterpart: the phone toolbar is already a single
   row with a tab counter instead of tabs. What desktop layout CSS does to colors, corners, fonts, bar
   height and scale carries over (see README, Layout).
-* **Tab keys** (`tab_selected`, `tab_line`, `tab_text`, `tab_background_text`) and sidebar / bookmarks
-  bar keys have no Android surface and are reported as dropped.
+* **Sidebar and bookmarks bar keys** have no Android surface and are reported as dropped.
 * **Settings** is not a gap: desktop's `about:preferences` ignores the theme and only follows light /
   dark mode, as KiwiFox's Settings do for imported themes.
 * **Hover** does not exist on touch: `popup_highlight` shows on pressed, hovered (mouse) and

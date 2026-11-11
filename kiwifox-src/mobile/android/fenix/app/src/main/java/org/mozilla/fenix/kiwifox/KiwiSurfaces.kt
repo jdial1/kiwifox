@@ -28,6 +28,7 @@ import mozilla.components.compose.base.theme.LocalKiwiDark
 object KiwiSurfaces {
     private const val SECONDARY_TEXT_ALPHA = 0.72f
     private const val HIGHLIGHT_RIPPLE_ALPHA = 0.6f
+    private const val UNSELECTED_TAB_TINT = 0.08f
 
     /** Provides the KiwiFox mode to everything under FirefoxTheme (called by the patched FirefoxTheme). */
     @Composable
@@ -84,6 +85,48 @@ object KiwiSurfaces {
             onBackground = text,
             onSurface = text,
             onSurfaceVariant = text.copy(alpha = SECONDARY_TEXT_ALPHA).compositeOver(background),
+        )
+        MaterialTheme(colorScheme = scheme, content = content)
+    }
+
+    /**
+     * The tab tray in desktop's tab strip colors: the strip (`frame`) as the background, unselected tabs
+     * as a light tint of their text over it (desktop's hovered tab), the selected tab in `tab_selected` /
+     * `tab_text`, and `tab_line` as the accent (selection border, highlights).
+     */
+    @Composable
+    fun TabsScope(content: @Composable () -> Unit) {
+        val r = roles()
+        val strip = r?.get("frame")?.let(::Color)
+        val selected = r?.get("tabSelected")?.let(::Color)
+        if (r == null || strip == null || selected == null) {
+            content()
+            return
+        }
+        val stripText = Color(r.getValue("tabBackgroundText"))
+        val selectedText = Color(r.getValue("tabText"))
+        val unselected = stripText.copy(alpha = UNSELECTED_TAB_TINT).compositeOver(strip)
+        val line = r["tabLine"]?.let(::Color)
+        val base = MaterialTheme.colorScheme
+        val scheme = base.copy(
+            background = strip,
+            surface = strip,
+            surfaceDim = strip,
+            surfaceContainerLowest = strip,
+            surfaceContainerLow = strip,
+            surfaceContainer = strip,
+            surfaceBright = unselected,
+            surfaceContainerHigh = unselected,
+            surfaceContainerHighest = unselected,
+            primaryContainer = selected,
+            secondaryContainer = selected,
+            onPrimaryContainer = selectedText,
+            onSecondaryContainer = selectedText,
+            onBackground = stripText,
+            onSurface = stripText,
+            onSurfaceVariant = stripText.copy(alpha = SECONDARY_TEXT_ALPHA).compositeOver(strip),
+            secondary = line ?: stripText,
+            primary = line ?: base.primary,
         )
         MaterialTheme(colorScheme = scheme, content = content)
     }
