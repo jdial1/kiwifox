@@ -11,7 +11,16 @@
     "surfaceContainerHighest": "#F1F3F4",
     "onBackground": "#606368",
     "onSurface": "#606368",
-    "onSurfaceVariant": "#606368"
+    "onSurfaceVariant": "#606368",
+    "ntpBackground": "#F7F6FB",
+    "ntpText": "#15141A",
+    "ntpCard": "#FFFFFF",
+    "popup": "#FFFFFF",
+    "popupText": "#15141A",
+    "popupHighlight": "#EFEFEF",
+    "popupHighlightText": "#15141A",
+    "fieldBorderFocus": "#764EDD",
+    "frame": "#DEE1E6"
   },
   "dark": {
     "background": "#DEE1E6",
@@ -24,7 +33,16 @@
     "surfaceContainerHighest": "#F1F3F4",
     "onBackground": "#606368",
     "onSurface": "#606368",
-    "onSurfaceVariant": "#606368"
+    "onSurfaceVariant": "#606368",
+    "ntpBackground": "#F7F6FB",
+    "ntpText": "#15141A",
+    "ntpCard": "#FFFFFF",
+    "popup": "#FFFFFF",
+    "popupText": "#15141A",
+    "popupHighlight": "#EFEFEF",
+    "popupHighlightText": "#15141A",
+    "fieldBorderFocus": "#764EDD",
+    "frame": "#DEE1E6"
   },
   "style": {
     "fieldRadius": -1,

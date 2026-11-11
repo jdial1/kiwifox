@@ -27,6 +27,11 @@ $AC/browser-toolbar/src/main/java/mozilla/components/compose/browser/toolbar/ui/
 $AC/browser-toolbar/src/main/java/mozilla/components/compose/browser/toolbar/BrowserEditToolbar.kt
 $AC/browser-toolbar/src/main/java/mozilla/components/compose/browser/toolbar/ui/Origin.kt
 $AC/browser-toolbar/src/main/java/mozilla/components/compose/browser/toolbar/ui/InlineAutocompleteTextField.kt
+$AC/browser-toolbar/src/main/java/mozilla/components/compose/browser/toolbar/BrowserToolbar.kt
+$FENIX/java/org/mozilla/fenix/home/HomeFragment.kt
+$FENIX/java/org/mozilla/fenix/home/ui/Homepage.kt
+$FENIX/java/org/mozilla/fenix/components/menu/compose/MenuDialogBottomSheet.kt
+$FENIX/java/org/mozilla/fenix/search/awesomebar/AwesomeBarComposable.kt
 "
 for f in $FILES; do
   mkdir -p "$TMP/$(dirname "$f")"

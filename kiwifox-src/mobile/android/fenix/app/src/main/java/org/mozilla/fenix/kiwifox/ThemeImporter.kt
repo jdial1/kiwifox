@@ -127,7 +127,16 @@ class ThemeImporter(private val client: Client) {
         // A repository that ships a static theme manifest is a desktop theme: use that directly.
         files.firstOrNull { it.endsWith("manifest.json") && it.count { c -> c == '/' } <= 1 }?.let { manifestPath ->
             val manifest = runCatching { JSONObject(fetchText(raw(manifestPath))) }.getOrNull()
-            if (manifest != null && manifest.has("theme")) return fromManifest(manifest, repo)
+            if (manifest != null && manifest.has("theme")) {
+                // Header images are referenced relative to the manifest; fetch just those.
+                val dir = manifestPath.substringBeforeLast('/', "")
+                val images = HashMap<String, ByteArray>()
+                for (path in referencedImages(manifest)) {
+                    val full = if (dir.isEmpty()) path else "$dir/$path"
+                    if (full in files) runCatching { fetchBytes(raw(full)) }.getOrNull()?.let { images[path] = it }
+                }
+                return fromManifest(manifest, repo, images)
+            }
         }
 
         val cssFiles = files.filter { it.endsWith(".css") }
@@ -157,30 +166,34 @@ class ThemeImporter(private val client: Client) {
     private fun fromZip(bytes: ByteArray, name: String): Imported {
         // A zipped `chrome` folder (how many r/FirefoxCSS themes are released) is read like a repository.
         val cssFiles = LinkedHashMap<String, String>()
+        val others = LinkedHashMap<String, ByteArray>()
+        var manifestText: String? = null
         var userJs: String? = null
         var total = 0
         ZipInputStream(ByteArrayInputStream(bytes)).use { zip ->
             while (true) {
                 val entry = zip.nextEntry ?: break
                 if (entry.isDirectory) continue
-                if (entry.name == "manifest.json" || entry.name.endsWith("/manifest.json")) {
-                    return fromManifestText(zip.readBytes().toString(Charsets.UTF_8), name)
-                }
-                if (entry.name.endsWith(".css") && total < MAX_CSS_BYTES) {
-                    val text = zip.readBytes().toString(Charsets.UTF_8)
-                    total += text.length
-                    cssFiles[entry.name] = text
-                } else if (entry.name.endsWith("user.js") && userJs == null) {
-                    userJs = zip.readBytes().toString(Charsets.UTF_8)
+                val data = zip.readBytes()
+                total += data.size
+                if (total > MAX_DOWNLOAD_BYTES) throw ThemeImportException("archive larger than ${MAX_DOWNLOAD_BYTES / (1024 * 1024)} MB unpacked; not a theme")
+                when {
+                    entry.name == "manifest.json" || entry.name.endsWith("/manifest.json") ->
+                        if (manifestText == null) manifestText = data.toString(Charsets.UTF_8)
+                    entry.name.endsWith(".css") -> cssFiles[entry.name] = data.toString(Charsets.UTF_8)
+                    entry.name.endsWith("user.js") && userJs == null -> userJs = data.toString(Charsets.UTF_8)
+                    else -> others[entry.name] = data
                 }
             }
         }
+        // A static theme package: the manifest plus its header images.
+        manifestText?.let { return fromManifestText(it, name, others) }
         if (cssFiles.isNotEmpty()) return fromCss(repoCss(cssFiles.keys) { cssFiles[it] }.first, name, userJs)
         throw ThemeImportException("archive has no manifest.json or .css files; this is not a Firefox theme package")
     }
 
 
-    private fun fromManifestText(text: String, name: String): Imported {
+    private fun fromManifestText(text: String, name: String, files: Map<String, ByteArray> = emptyMap()): Imported {
         val json = runCatching { JSONObject(text) }.getOrElse { throw ThemeImportException("not valid JSON") }
         // A KiwiFox theme file exported by this app or by the desktop pipeline.
         if (!json.has("theme") && json.has("light") && json.has("dark")) {
@@ -188,12 +201,24 @@ class ThemeImporter(private val client: Client) {
             if (theme.light.isEmpty()) throw ThemeImportException("KiwiFox theme file has no light colors")
             return Imported(theme, emptyList())
         }
-        return fromManifest(json, name)
+        return fromManifest(json, name, files)
     }
 
-    private fun fromManifest(manifest: JSONObject, name: String): Imported {
-        val converted = ThemeConverter.convert(manifest, name)
+    private fun fromManifest(manifest: JSONObject, name: String, files: Map<String, ByteArray> = emptyMap()): Imported {
+        val converted = ThemeConverter.convert(manifest, name, files)
         return Imported(converted.theme, converted.notes)
+    }
+
+    /** Image paths a static theme manifest references (`theme_frame`, `additional_backgrounds`). */
+    private fun referencedImages(manifest: JSONObject): List<String> {
+        val out = ArrayList<String>()
+        for (block in listOf(manifest.optJSONObject("theme"), manifest.optJSONObject("dark_theme"))) {
+            val images = block?.optJSONObject("images") ?: continue
+            images.optString("theme_frame").takeIf { it.isNotBlank() }?.let(out::add)
+            val extra = images.optJSONArray("additional_backgrounds") ?: continue
+            for (i in 0 until extra.length()) (extra.opt(i) as? String)?.let(out::add)
+        }
+        return out.map { it.removePrefix("./").removePrefix("/") }.distinct()
     }
 
     private fun fromCss(css: String, name: String, userJs: String? = null): Imported {

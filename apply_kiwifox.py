@@ -159,6 +159,11 @@ def copy_sources(root: Path) -> None:
     for theme in sorted((HERE / "theme").glob("*.json")):
         shutil.copyfile(theme, assets / theme.name)
         print(f"asset   kiwifox/themes/{theme.name}")
+        # Header images sit in a folder named after the theme file.
+        images = theme.with_suffix("")
+        if images.is_dir():
+            shutil.copytree(images, assets / images.name, dirs_exist_ok=True)
+            print(f"asset   kiwifox/themes/{images.name}/ ({len(list(images.iterdir()))} files)")
 
 
 def patch_firefox_theme(text: str) -> str:
@@ -608,6 +613,227 @@ def patch_app_identity(text: str, app: dict) -> str:
     return text[:start] + block + text[end:]
 
 
+KIWI_SURFACES = "org.mozilla.fenix.kiwifox.KiwiSurfaces"
+
+
+def patch_firefox_theme_mode(text: str) -> str:
+    """Tell the tree whether a KiwiFox theme applies and in which mode (null in private mode)."""
+    text = insert_after(
+        text,
+        "            theme == Theme.Dark || theme == Theme.Oled -> kiwiTheme.apply(colorScheme, darkMode = true)\n"
+        "            else -> colorScheme\n"
+        "        }\n",
+        "    val kiwiDark: Boolean? =\n"
+        "        when {\n"
+        "            kiwiTheme == null -> null\n"
+        "            theme == Theme.Light -> false\n"
+        "            theme == Theme.Dark || theme == Theme.Oled -> true\n"
+        "            else -> null\n"
+        "        }\n",
+        "FirefoxTheme kiwiDark",
+    )
+    return replace_once(
+        text,
+        "            gradients = gradients,\n            content = content,\n",
+        f"            gradients = gradients,\n            content = {{ {KIWI_SURFACES}.ProvideMode(kiwiDark, content) }},\n",
+        "FirefoxTheme content",
+    )
+
+
+def patch_home_fragment_background(text: str) -> str:
+    """Desktop `ntp_background` behind the homepage (a user wallpaper still draws on top, as on desktop)."""
+    return insert_before(
+        text,
+        "                        if (!isPrivateMode) {\n                            WallpaperBackground(\n",
+        f"                        if (!isPrivateMode) {KIWI_SURFACES}.HomeBackground()\n",
+        "HomeFragment wallpaper",
+    )
+
+
+def patch_homepage_scope(text: str) -> str:
+    """The homepage content in the new tab page colors: keep the original under a new name, wrap it."""
+    text = replace_once(
+        text,
+        "internal fun Homepage(\n    state: HomepageState,\n",
+        "private fun KiwiUnthemedHomepage(\n    state: HomepageState,\n",
+        "Homepage rename",
+    )
+    return text.rstrip("\n") + (
+        "\n\n/** KiwiFox: the homepage in the theme's new tab page colors (desktop `ntp_*`). */\n"
+        "@Composable\n"
+        "internal fun Homepage(\n"
+        "    state: HomepageState,\n"
+        "    interactor: HomepageInteractor,\n"
+        "    onCollectionsMigrationCardAction: (CollectionsMigrationCardAction) -> Unit,\n"
+        "    onTopSitesItemBound: () -> Unit,\n"
+        "    modifier: Modifier = Modifier,\n"
+        ") {\n"
+        f"    {KIWI_SURFACES}.HomeScope {{\n"
+        "        KiwiUnthemedHomepage(state, interactor, onCollectionsMigrationCardAction, onTopSitesItemBound, modifier)\n"
+        "    }\n"
+        "}\n"
+    )
+
+
+def patch_menu_sheet_scope(text: str) -> str:
+    """The main menu sheet in the theme's popup colors."""
+    text = replace_once(
+        text,
+        "fun MenuDialogBottomSheet(\n    modifier: Modifier = Modifier,\n",
+        "private fun KiwiUnthemedMenuDialogBottomSheet(\n    modifier: Modifier = Modifier,\n",
+        "MenuDialogBottomSheet rename",
+    )
+    return text.rstrip("\n") + (
+        "\n\n/** KiwiFox: the menu sheet in the theme's popup colors (desktop `popup*`). */\n"
+        "@Composable\n"
+        "fun MenuDialogBottomSheet(\n"
+        "    modifier: Modifier = Modifier,\n"
+        "    onRequestDismiss: () -> Unit,\n"
+        "    menuHandleState: MenuHandleState,\n"
+        "    snackbarHostState: SnackbarHostState,\n"
+        "    cornerShape: Shape =\n"
+        "        MaterialTheme.shapes.large.copy(\n"
+        "            bottomStart = CornerSize(0.dp),\n"
+        "            bottomEnd = CornerSize(0.dp),\n"
+        "        ),\n"
+        "    content: @Composable () -> Unit,\n"
+        ") {\n"
+        f"    {KIWI_SURFACES}.PopupScope {{\n"
+        "        KiwiUnthemedMenuDialogBottomSheet(modifier, onRequestDismiss, menuHandleState, snackbarHostState, cornerShape, content)\n"
+        "    }\n"
+        "}\n"
+    )
+
+
+def patch_awesomebar_scope(text: str) -> str:
+    """Search suggestions (desktop's address bar dropdown) in the theme's popup colors."""
+    text = replace_once(
+        text,
+        "modifier.background(MaterialTheme.colorScheme.surface).fillMaxSize().pointerInput(\n"
+        "                            WindowInsets.isImeVisible\n",
+        f"modifier.background({KIWI_SURFACES}.popupBackground(MaterialTheme.colorScheme.surface)).fillMaxSize().pointerInput(\n"
+        "                            WindowInsets.isImeVisible\n",
+        "AwesomeBar background",
+    )
+    text = replace_once(
+        text,
+        "                        AwesomeBar(\n                            text = state.query,\n",
+        f"                        {KIWI_SURFACES}.PopupScope {{\n"
+        "                        AwesomeBar(\n                            text = state.query,\n",
+        "AwesomeBar scope open",
+    )
+    return replace_once(
+        text,
+        "                            profiler = components.core.engine.profiler,\n                        )\n",
+        "                            profiler = components.core.engine.profiler,\n                        )\n"
+        "                        }\n",
+        "AwesomeBar scope close",
+    )
+
+
+def patch_browser_toolbar_header(text: str) -> str:
+    """Header images and translucent toolbar color behind the toolbar; theme icon color for toolbar buttons."""
+    text = insert_after(
+        text,
+        "import mozilla.components.compose.base.theme.AcornTheme\n",
+        "import mozilla.components.compose.base.theme.KiwiHeaderBox\n"
+        "import mozilla.components.compose.base.theme.KiwiStyles\n",
+        "BrowserToolbar imports",
+    )
+    text = replace_once(
+        text,
+        "@Composable\nfun BrowserToolbar(\n    store: BrowserToolbarStore,\n",
+        "@Composable\nprivate fun KiwiUnthemedBrowserToolbar(\n    store: BrowserToolbarStore,\n",
+        "BrowserToolbar rename",
+    )
+    text = replace_once(
+        text,
+        "    val backgroundColor = MaterialTheme.colorScheme.surface\n",
+        "    val backgroundColor = KiwiStyles.toolbarColor(MaterialTheme.colorScheme.surface)\n",
+        "BrowserToolbar background",
+    )
+    text = replace_once(
+        text,
+        "                } else {\n                    MaterialTheme.colorScheme.surface\n                },\n",
+        "                } else {\n                    KiwiStyles.toolbarColor(MaterialTheme.colorScheme.surface)\n                },\n",
+        "BrowserToolbar edit background",
+    )
+    return text.rstrip("\n") + (
+        "\n\n/**\n"
+        " * KiwiFox: [KiwiUnthemedBrowserToolbar] over the theme's header (frame color and images), with the\n"
+        " * theme's `icons` color on the browser actions unless the caller sets one.\n"
+        " */\n"
+        "@Composable\n"
+        "fun BrowserToolbar(\n"
+        "    store: BrowserToolbarStore,\n"
+        "    cfr: BrowserToolbarCFR? = null,\n"
+        "    useMinimalBottomToolbarWhenEnteringText: Boolean = false,\n"
+        "    browserActionsColor: Color? = null,\n"
+        ") {\n"
+        "    KiwiHeaderBox {\n"
+        "        KiwiUnthemedBrowserToolbar(\n"
+        "            store = store,\n"
+        "            cfr = cfr,\n"
+        "            useMinimalBottomToolbarWhenEnteringText = useMinimalBottomToolbarWhenEnteringText,\n"
+        "            browserActionsColor = browserActionsColor ?: KiwiStyles.iconColor(),\n"
+        "        )\n"
+        "    }\n"
+        "}\n"
+    )
+
+
+def patch_browser_actions_attention(text: str) -> str:
+    """Desktop `icons_attention` (active toolbar buttons) on the browser actions."""
+    return replace_once(
+        text,
+        "            colorScheme = MaterialTheme.colorScheme.copy(onSurface = color),\n",
+        "            colorScheme = MaterialTheme.colorScheme.copy(\n"
+        "                onSurface = color,\n"
+        "                tertiary = KiwiStyles.chrome()?.iconsAttention?.takeIf { it != Color.Unspecified }\n"
+        "                    ?: MaterialTheme.colorScheme.tertiary,\n"
+        "            ),\n",
+        "FullDisplayToolbar icons_attention",
+    )
+
+
+def patch_edit_toolbar_focus_field(text: str) -> str:
+    """Desktop `toolbar_field_focus`: the address field background while editing."""
+    return replace_once(
+        text,
+        "                        .background(color = MaterialTheme.colorScheme.surfaceContainerHighest),\n",
+        "                        .background(color = KiwiStyles.fieldFocus(MaterialTheme.colorScheme.surfaceContainerHighest)),\n",
+        "BrowserEditToolbar focus field",
+    )
+
+
+def patch_inline_autocomplete_focus_text(text: str) -> str:
+    """Desktop `toolbar_field_text_focus`: the address text while editing."""
+    return replace_once(
+        text,
+        "                        fontFamily = KiwiStyles.current.fontFamily,\n"
+        "                        fontSize = TEXT_SIZE.sp,\n"
+        "                        color = MaterialTheme.colorScheme.onSurface,\n",
+        "                        fontFamily = KiwiStyles.current.fontFamily,\n"
+        "                        fontSize = TEXT_SIZE.sp,\n"
+        "                        color = KiwiStyles.fieldTextFocus(MaterialTheme.colorScheme.onSurface),\n",
+        "InlineAutocompleteTextField focus text",
+    )
+
+
+def apply_parity_patches(root: Path) -> None:
+    """Desktop surfaces beyond the toolbar: new tab page, menus and dropdown, header images, icons, focus field.
+    Separate so an applied tree can take just these (`apply_kiwifox.py --parity-only <tree>`)."""
+    patch(root, f"{FENIX}/java/org/mozilla/fenix/theme/FirefoxTheme.kt", patch_firefox_theme_mode)
+    patch(root, f"{FENIX}/java/org/mozilla/fenix/home/HomeFragment.kt", patch_home_fragment_background)
+    patch(root, f"{FENIX}/java/org/mozilla/fenix/home/ui/Homepage.kt", patch_homepage_scope)
+    patch(root, f"{FENIX}/java/org/mozilla/fenix/components/menu/compose/MenuDialogBottomSheet.kt", patch_menu_sheet_scope)
+    patch(root, f"{FENIX}/java/org/mozilla/fenix/search/awesomebar/AwesomeBarComposable.kt", patch_awesomebar_scope)
+    patch(root, f"{AC_TOOLBAR}/BrowserToolbar.kt", patch_browser_toolbar_header)
+    patch(root, f"{AC_TOOLBAR}/ui/FullDisplayToolbar.kt", patch_browser_actions_attention)
+    patch(root, f"{AC_TOOLBAR}/BrowserEditToolbar.kt", patch_edit_toolbar_focus_field)
+    patch(root, f"{AC_TOOLBAR}/ui/InlineAutocompleteTextField.kt", patch_inline_autocomplete_focus_text)
+
+
 def apply_style_patches(root: Path) -> None:
     """Theme style (radius, font, sizes, scale). Separate so an already-applied tree can take just these
     (`apply_kiwifox.py --style-only <tree>`) after copy_sources/write_overlays."""
@@ -623,6 +849,14 @@ def apply_style_patches(root: Path) -> None:
 
 
 def main() -> None:
+    if len(sys.argv) == 3 and sys.argv[1] == "--parity-only":
+        root = Path(sys.argv[2]).resolve()
+        try:
+            copy_sources(root)
+            apply_parity_patches(root)
+        except AnchorMissing as e:
+            sys.exit(f"APPLY FAILED: {e}")
+        return
     if len(sys.argv) == 3 and sys.argv[1] == "--style-only":
         root = Path(sys.argv[2]).resolve()
         try:
@@ -654,6 +888,7 @@ def main() -> None:
         patch(root, f"{FENIX}/java/org/mozilla/fenix/utils/Settings.kt", patch_home_button_settings)
         patch(root, "mobile/android/fenix/app/build.gradle", lambda t: patch_app_identity(t, app))
         apply_style_patches(root)
+        apply_parity_patches(root)
     except AnchorMissing as e:
         sys.exit(f"APPLY FAILED: {e}")
 

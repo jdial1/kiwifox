@@ -14,8 +14,10 @@ import org.json.JSONObject
  * The JSON format is the one produced by the desktop `import_theme.py` pipeline:
  * `{"_source": "...", "light": {"surface": "#RRGGBB", ...}, "dark": {...}}`.
  * Only roles listed in [ROLES] are applied to the color scheme; [EXTRA_ROLES] are desktop colors
- * with no Material role (the address field border), read by [KiwiThemeManager]. The optional
- * `style` object holds radius, font and scale settings ([KiwiStyleSpec]).
+ * with no Material role (new tab page, menus, frame, icons, address field focus), read by
+ * [KiwiThemeManager] and [KiwiSurfaces]. The optional `style` object holds radius, font and scale
+ * settings ([KiwiStyleSpec]); the optional `header` object the desktop header per mode ([HeaderSpec]),
+ * whose image files sit in a folder named after the theme file.
  */
 data class KiwiTheme(
     val id: String,
@@ -25,7 +27,26 @@ data class KiwiTheme(
     val dark: Map<String, Int>,
     val builtIn: Boolean,
     val style: KiwiStyleSpec = KiwiStyleSpec.EMPTY,
+    val header: Map<String, HeaderSpec> = emptyMap(),
+    /** Image bytes of a theme being imported, by file name; written next to the theme when saved. */
+    val pendingFiles: Map<String, ByteArray> = emptyMap(),
 ) {
+    /**
+     * A desktop header for one mode: [toolbar] is desktop `toolbar` with its alpha (#AARRGGBB), painted
+     * over [layers]. Each layer has either a [LayerSpec.file] (an image in the theme folder) or a
+     * [LayerSpec.gradient] (the body of a CSS `linear-gradient(...)`).
+     */
+    data class HeaderSpec(val toolbar: Long, val layers: List<LayerSpec>)
+
+    data class LayerSpec(
+        val file: String? = null,
+        val gradient: String? = null,
+        val alignment: String = "left top",
+        val tiling: String = "no-repeat",
+        val size: String = "auto",
+        val pxPerCss: Float = 1f,
+    )
+
     /** Returns [scheme] with this theme's roles for the requested mode replaced. */
     fun apply(scheme: ColorScheme, darkMode: Boolean): ColorScheme {
         var result = scheme
@@ -52,6 +73,22 @@ data class KiwiTheme(
         json.put("light", rolesToJson(light))
         json.put("dark", rolesToJson(dark))
         if (!style.isEmpty) json.put("style", style.toJson())
+        if (header.isNotEmpty()) {
+            val h = JSONObject()
+            for ((mode, spec) in header) {
+                val layers = org.json.JSONArray()
+                for (l in spec.layers) {
+                    val o = JSONObject()
+                    l.file?.let { o.put("file", it) }
+                    l.gradient?.let { o.put("gradient", it) }
+                    o.put("alignment", l.alignment).put("tiling", l.tiling).put("size", l.size)
+                    if (l.pxPerCss != 1f) o.put("pxPerCss", l.pxPerCss.toDouble())
+                    layers.put(o)
+                }
+                h.put(mode, JSONObject().put("toolbar", String.format("#%08X", spec.toolbar and 0xFFFFFFFFL)).put("layers", layers))
+            }
+            json.put("header", h)
+        }
         return json.toString(2)
     }
 
@@ -69,8 +106,18 @@ data class KiwiTheme(
             "surfaceContainerHighest", "surfaceContainerLow", "surfaceContainerLowest",
         )
 
-        /** Desktop colors without a Material role: desktop `toolbar_field_border` and `_focus`. */
-        val EXTRA_ROLES = listOf("fieldBorder", "fieldBorderFocus")
+        /**
+         * Desktop colors without a Material role, by desktop key: `toolbar_field_border(_focus)`,
+         * `toolbar_field_focus`, `toolbar_field_text_focus`, `ntp_background`, `ntp_text`,
+         * `ntp_card_background`, `popup`, `popup_text`, `popup_highlight`, `popup_highlight_text`,
+         * `popup_border`, `frame`, `icons`, `icons_attention`.
+         */
+        val EXTRA_ROLES = listOf(
+            "fieldBorder", "fieldBorderFocus", "fieldFocus", "fieldTextFocus",
+            "ntpBackground", "ntpText", "ntpCard",
+            "popup", "popupText", "popupHighlight", "popupHighlightText", "popupBorder",
+            "frame", "icons", "iconsAttention",
+        )
 
         fun fromJson(id: String, text: String, builtIn: Boolean, fallbackName: String): KiwiTheme {
             val json = JSONObject(text)
@@ -86,7 +133,32 @@ data class KiwiTheme(
                 dark = rolesFromJson(json.optJSONObject("dark")),
                 builtIn = builtIn,
                 style = KiwiStyleSpec.fromJson(json.optJSONObject("style")),
+                header = headerFromJson(json.optJSONObject("header")),
             )
+        }
+
+        private fun headerFromJson(obj: JSONObject?): Map<String, HeaderSpec> {
+            if (obj == null) return emptyMap()
+            val out = LinkedHashMap<String, HeaderSpec>()
+            for (mode in listOf("light", "dark")) {
+                val m = obj.optJSONObject(mode) ?: continue
+                val toolbar = m.optString("toolbar").removePrefix("#")
+                val argb = if (toolbar.length == 8) toolbar.toLong(16) else 0L
+                val arr = m.optJSONArray("layers") ?: org.json.JSONArray()
+                val layers = (0 until arr.length()).map { i ->
+                    val l = arr.getJSONObject(i)
+                    LayerSpec(
+                        file = l.optString("file").ifBlank { null }?.takeIf { !it.contains('/') && !it.contains('\\') },
+                        gradient = l.optString("gradient").ifBlank { null },
+                        alignment = l.optString("alignment", "left top"),
+                        tiling = l.optString("tiling", "no-repeat"),
+                        size = l.optString("size", "auto"),
+                        pxPerCss = l.optDouble("pxPerCss", 1.0).toFloat(),
+                    )
+                }
+                out[mode] = HeaderSpec(argb, layers)
+            }
+            return out
         }
 
         private fun rolesFromJson(obj: JSONObject?): Map<String, Int> {

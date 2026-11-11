@@ -54,10 +54,10 @@ class CssThemeExtractorCatalogTest {
         val (manifest, _) = CssThemeExtractor.toManifest(css, "t")
         val colors = manifest.getJSONObject("theme").getJSONObject("colors")
         assertEquals("#112233", colors.getString("toolbar_field_text"))
-        assertEquals("#ffffff", colors.getString("frame"))
+        assertEquals("#ffffff", colors.getString("toolbar"))
         assertEquals("#eeeeee", colors.getString("toolbar_field"))
         val dark = manifest.getJSONObject("dark_theme").getJSONObject("colors")
-        assertEquals("#000000", dark.getString("frame"))
+        assertEquals("#000000", dark.getString("toolbar"))
     }
 
     @Test

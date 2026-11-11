@@ -13,10 +13,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.ColorUtils
 import androidx.core.view.WindowCompat
+import mozilla.components.compose.base.theme.KiwiChromeColors
 import mozilla.components.compose.base.theme.KiwiStyle
 import mozilla.components.compose.base.theme.KiwiStyles
 import mozilla.components.support.ktx.android.content.getColorFromAttr
@@ -118,7 +120,12 @@ object KiwiThemeManager {
         var id = "user-$slug"
         var n = 2
         while (File(dir, "$id.json").exists()) id = "user-$slug-${n++}"
-        val stored = theme.copy(id = id, builtIn = false)
+        val stored = theme.copy(id = id, builtIn = false, pendingFiles = emptyMap())
+        // Header images live in a folder named after the theme file.
+        if (theme.pendingFiles.isNotEmpty()) {
+            val imageDir = File(dir, id).apply { mkdirs() }
+            for ((name, bytes) in theme.pendingFiles) File(imageDir, name).writeBytes(bytes)
+        }
         File(dir, "$id.json").writeText(stored.toJson())
         reload(context)
         return stored
@@ -127,6 +134,7 @@ object KiwiThemeManager {
     fun delete(context: Context, theme: KiwiTheme) {
         if (theme.builtIn) return
         File(importDir(context), "${theme.id}.json").delete()
+        File(importDir(context), theme.id).deleteRecursively()
         prefs(context).edit().remove(KEY_STYLE_PREFIX + theme.id).apply()
         if (current?.id == theme.id) select(context, null)
         reload(context)
@@ -217,15 +225,21 @@ object KiwiThemeManager {
             bar.overflowIcon?.setTint(onSurface)
         }
 
+        // Desktop shows its tab strip (`frame` and the header images) above the toolbar; Android has the
+        // status bar there, so it takes the header's color at that height, else frame.
+        val private = runCatching { (activity as? org.mozilla.fenix.HomeActivity)?.let { it.browsingModeManager.mode.isPrivate } }
+            .getOrNull() == true
+        val header = (if (dark) KiwiStyles.current.dark else KiwiStyles.current.light).header
+        val statusBar = if (private) null else header?.statusBar?.toArgb() ?: roles?.get("frame") ?: roles?.get("surface")
         val window = activity.window
         @Suppress("DEPRECATION")
-        window.statusBarColor = surface
+        window.statusBarColor = statusBar ?: surface
         @Suppress("DEPRECATION")
         window.navigationBarColor = surface
-        val light = ColorUtils.calculateLuminance(surface) > 0.5
+        KiwiStatusBar.apply(activity, statusBar)
         WindowCompat.getInsetsController(window, window.decorView).apply {
-            isAppearanceLightStatusBars = light
-            isAppearanceLightNavigationBars = light
+            isAppearanceLightStatusBars = ColorUtils.calculateLuminance(statusBar ?: surface) > 0.5
+            isAppearanceLightNavigationBars = ColorUtils.calculateLuminance(surface) > 0.5
         }
     }
 
@@ -240,18 +254,45 @@ object KiwiThemeManager {
     }
 
     private fun toComposeStyle(context: Context, spec: KiwiStyleSpec, theme: KiwiTheme?): KiwiStyle {
-        fun color(roles: Map<String, Int>?, key: String) = roles?.get(key)?.let { Color(it) } ?: Color.Unspecified
+        fun chrome(mode: String): KiwiChromeColors {
+            val roles = (if (mode == "dark") theme?.dark else theme?.light).orEmpty()
+            fun color(key: String) = roles[key]?.let { Color(it) } ?: Color.Unspecified
+            return KiwiChromeColors(
+                fieldBorder = color("fieldBorder"),
+                fieldBorderFocus = color("fieldBorderFocus"),
+                // While typing, desktop 159 draws the address field and its results as one panel in
+                // the popup colors; toolbar_field_focus only shows with the results closed.
+                fieldFocus = roles["popup"]?.let { Color(it) } ?: color("fieldFocus"),
+                fieldTextFocus = roles["popupText"]?.let { Color(it) } ?: color("fieldTextFocus"),
+                icons = color("icons"),
+                iconsAttention = color("iconsAttention"),
+                header = theme?.let { t -> t.header[mode]?.let { KiwiHeaderLoader.load(context, t, it, roles["frame"]) } },
+            )
+        }
         return KiwiStyle(
             fieldCornerRadius = spec.fieldRadius?.takeIf { it >= 0f }?.dp,
             fieldHeight = (spec.fieldHeight ?: KiwiStyleSpec.MAX_FIELD_HEIGHT).dp,
             fieldBorderWidth = (spec.fieldBorderWidth ?: 0f).dp,
-            fieldBorderLight = color(theme?.light, "fieldBorder"),
-            fieldBorderDark = color(theme?.dark, "fieldBorder"),
-            fieldBorderFocusLight = color(theme?.light, "fieldBorderFocus"),
-            fieldBorderFocusDark = color(theme?.dark, "fieldBorderFocus"),
+            light = chrome("light"),
+            dark = chrome("dark"),
             cornerScale = spec.cornerScale ?: 1f,
             fontFamily = fontFamily(context, spec),
         )
+    }
+
+    /** Where a theme's header images are: assets for bundled themes, files for imported ones. */
+    internal fun openThemeFile(context: Context, theme: KiwiTheme, name: String): java.io.InputStream? =
+        if (theme.builtIn) {
+            runCatching { context.assets.open("$ASSET_DIR/${theme.id.removePrefix("bundled-")}/$name") }.getOrNull()
+        } else {
+            File(File(importDir(context), theme.id), name).takeIf { it.isFile }?.inputStream()
+        }
+
+    /** The theme's role colors for the activity's current mode, or null with no theme. */
+    internal fun rolesFor(activity: Activity): Map<String, Int>? {
+        val dark = (activity.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+            Configuration.UI_MODE_NIGHT_YES
+        return current?.let { if (dark) it.dark else it.light }
     }
 
     @Suppress("ReturnCount")

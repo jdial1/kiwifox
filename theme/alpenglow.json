@@ -13,7 +13,20 @@
     "onSurface": "#20123B",
     "onSurfaceVariant": "#20123B",
     "primary": "#AC70FF",
-    "tertiary": "#AC70FF"
+    "tertiary": "#AC70FF",
+    "fieldFocus": "#291B42",
+    "fieldTextFocus": "#E8E0FF",
+    "ntpBackground": "#F9F9FB",
+    "ntpText": "#20123B",
+    "ntpCard": "#FFFFFF",
+    "popup": "#281D4E",
+    "popupText": "#E8E0FF",
+    "popupHighlight": "#3F3463",
+    "popupHighlightText": "#FFFFFF",
+    "popupBorder": "#655B87",
+    "fieldBorderFocus": "#AC70FF",
+    "frame": "#FFC999",
+    "iconsAttention": "#00A3A3"
   },
   "dark": {
     "background": "#281D4E",
@@ -28,6 +41,72 @@
     "onSurface": "#E8E0FF",
     "onSurfaceVariant": "#E8E0FF",
     "primary": "#AC70FF",
-    "tertiary": "#AC70FF"
+    "tertiary": "#AC70FF",
+    "fieldFocus": "#2D245B",
+    "fieldTextFocus": "#E8E0FF",
+    "ntpBackground": "#2A2A2E",
+    "ntpText": "#E8E0FF",
+    "ntpCard": "#252428",
+    "popup": "#2D245B",
+    "popupText": "#E8E0FF",
+    "popupHighlight": "#433B6F",
+    "popupHighlightText": "#FFFFFF",
+    "popupBorder": "#69608F",
+    "fieldBorderFocus": "#AC70FF",
+    "frame": "#291D4F",
+    "icons": "#C68AFF",
+    "iconsAttention": "#52FFBD"
+  },
+  "header": {
+    "light": {
+      "toolbar": "#C1FFFFFF",
+      "layers": [
+        {
+          "file": "light-0-background-noodles-right.png",
+          "alignment": "right top",
+          "tiling": "no-repeat",
+          "size": "auto",
+          "pxPerCss": 3
+        },
+        {
+          "file": "light-1-background-noodles-left.png",
+          "alignment": "left top",
+          "tiling": "no-repeat",
+          "size": "auto",
+          "pxPerCss": 3
+        },
+        {
+          "gradient": "to bottom, #FF6BBA -18.096%, #FFC999 50%",
+          "alignment": "right top",
+          "tiling": "repeat-x",
+          "size": "auto 144px"
+        }
+      ]
+    },
+    "dark": {
+      "toolbar": "#F4281D4E",
+      "layers": [
+        {
+          "file": "dark-0-background-noodles-right-dark.png",
+          "alignment": "right top",
+          "tiling": "no-repeat",
+          "size": "auto",
+          "pxPerCss": 3
+        },
+        {
+          "file": "dark-1-background-noodles-left-dark.png",
+          "alignment": "left top",
+          "tiling": "no-repeat",
+          "size": "auto",
+          "pxPerCss": 3
+        },
+        {
+          "gradient": "to bottom, #20123A 0%, #291D4F 50%",
+          "alignment": "right top",
+          "tiling": "repeat-x",
+          "size": "auto 144px"
+        }
+      ]
+    }
   }
 }

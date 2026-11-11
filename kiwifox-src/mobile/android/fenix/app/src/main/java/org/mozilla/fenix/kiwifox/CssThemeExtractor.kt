@@ -31,7 +31,25 @@ object CssThemeExtractor {
     private val OPTIONAL_ROLES: Map<String, List<String>> = linkedMapOf(
         "toolbar_field_border" to listOf("--toolbar-field-border-color", "--lwt-toolbar-field-border-color"),
         "toolbar_field_border_focus" to listOf("--toolbar-field-focus-border-color", "--focus-outline-color"),
+        "toolbar_field_focus" to listOf("--toolbar-field-focus-background-color"),
+        "toolbar_field_text_focus" to listOf("--toolbar-field-focus-color"),
+        "ntp_background" to listOf("--newtab-background-color", "--lwt-newtab-background-color"),
+        "ntp_text" to listOf("--newtab-text-primary-color", "--lwt-newtab-text-color"),
+        "ntp_card_background" to listOf("--newtab-background-color-secondary"),
+        "popup" to listOf("--arrowpanel-background", "--panel-background"),
+        "popup_text" to listOf("--arrowpanel-color", "--panel-color"),
+        "popup_highlight" to listOf("--urlbarView-highlight-background", "--arrowpanel-dimmed"),
+        "popup_highlight_text" to listOf("--urlbarView-highlight-color"),
+        "popup_border" to listOf("--arrowpanel-border-color", "--panel-border-color"),
+        "icons" to listOf("--toolbarbutton-icon-fill", "--lwt-toolbarbutton-icon-fill"),
+        "icons_attention" to listOf("--toolbarbutton-icon-fill-attention"),
+        // Desktop's tab strip (the area above the toolbar); not a manifest key, resolved in colorsFor.
+        TAB_STRIP to listOf("--toolbox-bgcolor", "--lwt-accent-color"),
     )
+    private const val TAB_STRIP = "_tab_strip"
+
+    /** Desktop Firefox 159's default tab strip (light, dark), measured at its center. */
+    private val DEFAULT_TAB_STRIP = "#F6EEFA" to "#372A3E"
     private val LITERAL = Regex("^(#[0-9a-fA-F]{3,8}|rgba?\\([^()]*\\)|hsla?\\([^()]*\\)|[a-zA-Z-]+)$")
     private val NOT_A_COLOR = setOf("inherit", "initial", "unset", "revert", "revert-layer", "currentcolor", "none", "auto")
 
@@ -146,12 +164,18 @@ object CssThemeExtractor {
             if (fromDefault) defaulted.add(key)
             out[key] = systemColor(found ?: throw Unresolved("$scheme: no value for $key via $names"), scheme)
         }
-        // Optional: only when the theme itself sets them (desktop's own default border is transparent).
+        // Optional: only when the theme itself sets them; otherwise desktop's defaults apply (in the converter).
         for ((key, names) in OPTIONAL_ROLES) {
             val name = names.firstOrNull { it in themeVariables } ?: continue
             val value = tryResolve(name, withDefaults, scheme) ?: continue
             out[key] = systemColor(value, scheme)
         }
+        // Desktop's two-tone header: the toolbar over the tab strip. A userChrome.css theme that does not
+        // color the tab strip shows Firefox's default one there (measured: a horizontal gradient whose
+        // center is DEFAULT_TAB_STRIP), so that is the strip on Android too (the status bar).
+        val strip = out.remove(TAB_STRIP)?.takeIf { it.lowercase() != out["frame"]?.lowercase() }
+        out["toolbar"] = out.getValue("frame")
+        out["frame"] = strip ?: if (scheme == "light") DEFAULT_TAB_STRIP.first else DEFAULT_TAB_STRIP.second
         if (defaulted.size == ROLES.size) {
             notes.add("this theme changes layout only: all toolbar colors are Firefox's defaults")
         } else if (defaulted.isNotEmpty()) {

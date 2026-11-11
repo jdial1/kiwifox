@@ -90,8 +90,8 @@ class CssStyleExtractorTest {
         assertTrue(source, source.startsWith("chrome/userChrome.css"))
         assertTrue("unimported file was read", !css.contains("#ff0000"))
         val (manifest, _) = CssThemeExtractor.toManifest(css, "t")
-        assertEquals("#fafafc", manifest.getJSONObject("theme").getJSONObject("colors").getString("frame"))
-        assertEquals("#1e2021", manifest.getJSONObject("dark_theme").getJSONObject("colors").getString("frame"))
+        assertEquals("#fafafc", manifest.getJSONObject("theme").getJSONObject("colors").getString("toolbar"))
+        assertEquals("#1e2021", manifest.getJSONObject("dark_theme").getJSONObject("colors").getString("toolbar"))
     }
 
     @Test

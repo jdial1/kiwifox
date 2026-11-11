@@ -264,15 +264,20 @@ copies of every patched upstream file and checks the result equals the build tre
 
 ## Android limits (reported by the importer, never hidden)
 
-* Only `frame`, `toolbar`, `toolbar_field`, `toolbar_field_text`,
-  `toolbar_field_border`, `toolbar_field_border_focus` have a place on the
-  Android toolbar. The other 36 schema keys and all images are listed as `dropped:`.
-* Android has one bar where desktop has frame + toolbar. The bar is drawn as
-  `toolbar` layered over `frame` (design decision, not a desktop rule).
-* The Android toolbar paints URL text and bar icons with one Material role
-  (`onSurface`). The importer fails if the URL text color is below 4.5:1 on
-  the field or 3:1 on the bar.
-* Settings screens and other XML-based views keep Firefox's own colors.
+* Mapped desktop keys: the toolbar and address field (`frame`, `toolbar`,
+  `toolbar_field*`), the new tab page (`ntp_*`), menus and the address bar
+  dropdown (`popup*`), toolbar icons (`icons`, `icons_attention`) and header
+  images; see [docs/desktop-vs-mobile.md](docs/desktop-vs-mobile.md) for where
+  each lands and how close it measures to desktop. Tab, sidebar and bookmarks
+  bar keys have no Android surface and are listed as `dropped:`; so are SVG
+  header images in imported themes (Android cannot decode SVG).
+* Android has one bar where desktop has the tab strip + toolbar. The bar is
+  `toolbar` layered over `frame` (and the header images); the status bar takes
+  the tab strip's color.
+* Icons inside the address field use the URL text color (as on desktop). The
+  importer replaces URL text below 4.5:1 on the field or 3:1 on the bar.
+* Settings screens and other XML-based views keep Firefox's own colors for
+  imported themes, as desktop's Settings page ignores themes.
 
 ## Why userChrome.css themes are rejected
 

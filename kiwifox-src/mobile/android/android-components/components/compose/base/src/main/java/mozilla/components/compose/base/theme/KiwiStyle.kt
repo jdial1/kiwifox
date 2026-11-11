@@ -15,6 +15,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
@@ -34,11 +35,9 @@ import androidx.compose.ui.unit.dp
  *
  * @property fieldCornerRadius Corner radius of the address field; null keeps Firefox's pill.
  * @property fieldHeight Visible height of the address field inside the toolbar's 48 dp slot.
- * @property fieldBorderWidth Width of the address field border; 0 draws none.
- * @property fieldBorderLight Border color in light mode ([Color.Unspecified] = outline role).
- * @property fieldBorderDark Border color in dark mode.
- * @property fieldBorderFocusLight Border color while editing, light mode (unspecified = [fieldBorderLight]).
- * @property fieldBorderFocusDark Border color while editing, dark mode.
+ * @property fieldBorderWidth Width of the address field border; 0 draws none (the focus ring is separate).
+ * @property light Chrome colors in light mode.
+ * @property dark Chrome colors in dark mode.
  * @property cornerScale Multiplier for the Material shape scale (cards, menus, dialogs, buttons).
  * @property fontFamily Font for all Compose text; null keeps the system font.
  */
@@ -46,18 +45,46 @@ data class KiwiStyle(
     val fieldCornerRadius: Dp? = null,
     val fieldHeight: Dp = DEFAULT_FIELD_HEIGHT,
     val fieldBorderWidth: Dp = 0.dp,
-    val fieldBorderLight: Color = Color.Unspecified,
-    val fieldBorderDark: Color = Color.Unspecified,
-    val fieldBorderFocusLight: Color = Color.Unspecified,
-    val fieldBorderFocusDark: Color = Color.Unspecified,
+    val light: KiwiChromeColors = KiwiChromeColors(),
+    val dark: KiwiChromeColors = KiwiChromeColors(),
     val cornerScale: Float = 1f,
     val fontFamily: FontFamily? = null,
 ) {
     companion object {
         /** Height of the address field in stock Firefox; also the fixed toolbar slot it sits in. */
         val DEFAULT_FIELD_HEIGHT: Dp = 48.dp
+
+        /** Desktop's 2 px focus ring at KiwiFox's desktop-to-Android scale (32 px bar = 48 dp field). */
+        val FOCUS_RING_WIDTH: Dp = 3.dp
     }
 }
+
+/**
+ * Toolbar colors for one mode that have no Material role. [Color.Unspecified] keeps Firefox's own.
+ *
+ * @property fieldBorder Address field border (desktop `toolbar_field_border`).
+ * @property fieldBorderFocus Focus ring while editing (desktop `toolbar_field_border_focus`).
+ * @property fieldFocus Address field background while editing (`toolbar_field_focus`).
+ * @property fieldTextFocus Address text while editing (`toolbar_field_text_focus`).
+ * @property icons Toolbar button icons (`icons`).
+ * @property iconsAttention Toolbar icons in their active state (`icons_attention`).
+ * @property header Frame color, translucent toolbar color and header images, or null for a flat toolbar.
+ */
+data class KiwiChromeColors(
+    val fieldBorder: Color = Color.Unspecified,
+    val fieldBorderFocus: Color = Color.Unspecified,
+    val fieldFocus: Color = Color.Unspecified,
+    val fieldTextFocus: Color = Color.Unspecified,
+    val icons: Color = Color.Unspecified,
+    val iconsAttention: Color = Color.Unspecified,
+    val header: KiwiHeader? = null,
+)
+
+/**
+ * Whether a KiwiFox theme is in effect for this composition and in which mode: null when no theme is
+ * selected or in private mode (which keeps Firefox's purple). Provided by the patched FirefoxTheme.
+ */
+val LocalKiwiDark = staticCompositionLocalOf<Boolean?> { null }
 
 /** Holder of the active [KiwiStyle]. Snapshot state: composables reading it recompose on change. */
 object KiwiStyles {
@@ -111,21 +138,45 @@ object KiwiStyles {
     /** [style] in the theme font. For text styles built inline instead of taken from a typography. */
     fun font(style: TextStyle): TextStyle = current.fontFamily?.let { style.copy(fontFamily = it) } ?: style
 
-    /** Border for the address field, or null when the theme draws none. */
+    /** The theme's chrome colors for the current mode, or null when no theme applies here. */
+    @Composable
+    fun chrome(): KiwiChromeColors? {
+        val dark = LocalKiwiDark.current ?: return null
+        return if (dark) current.dark else current.light
+    }
+
+    /**
+     * Border for the address field, or null when none is drawn. While editing, desktop always rings
+     * the field in `toolbar_field_border_focus`; unfocused, a border needs `toolbar_field_border`.
+     */
     @Composable
     fun fieldBorder(focused: Boolean): BorderStroke? {
         val style = current
-        if (style.fieldBorderWidth <= 0.dp) return null
-        val dark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
-        val normal = if (dark) style.fieldBorderDark else style.fieldBorderLight
-        val focus = if (dark) style.fieldBorderFocusDark else style.fieldBorderFocusLight
-        val color = when {
-            focused && focus != Color.Unspecified -> focus
-            normal != Color.Unspecified -> normal
-            else -> MaterialTheme.colorScheme.outline
+        val colors = chrome()
+        val focus = colors?.fieldBorderFocus?.takeIf { it != Color.Unspecified }
+        if (focused && focus != null) {
+            return BorderStroke(maxOf(style.fieldBorderWidth, KiwiStyle.FOCUS_RING_WIDTH), focus)
         }
-        return BorderStroke(style.fieldBorderWidth, color)
+        if (style.fieldBorderWidth <= 0.dp) return null
+        val normal = colors?.fieldBorder?.takeIf { it != Color.Unspecified } ?: MaterialTheme.colorScheme.outline
+        return BorderStroke(style.fieldBorderWidth, normal)
     }
+
+    /** Address field background while editing, or [default]. */
+    @Composable
+    fun fieldFocus(default: Color): Color = chrome()?.fieldFocus?.takeIf { it != Color.Unspecified } ?: default
+
+    /** Address text color while editing, or [default]. */
+    @Composable
+    fun fieldTextFocus(default: Color): Color = chrome()?.fieldTextFocus?.takeIf { it != Color.Unspecified } ?: default
+
+    /** Toolbar button icon color, or null for Firefox's own. */
+    @Composable
+    fun iconColor(): Color? = chrome()?.icons?.takeIf { it != Color.Unspecified }
+
+    /** Toolbar background: the theme's translucent toolbar color over its header, or [default]. */
+    @Composable
+    fun toolbarColor(default: Color): Color = chrome()?.header?.toolbar ?: default
 
     @Synchronized
     private fun refreshTypography(family: FontFamily) {
