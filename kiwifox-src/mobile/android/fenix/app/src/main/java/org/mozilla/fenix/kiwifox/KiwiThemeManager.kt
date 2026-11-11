@@ -7,16 +7,24 @@ package org.mozilla.fenix.kiwifox
 import android.app.Activity
 import android.content.Context
 import android.content.res.Configuration
+import android.graphics.Typeface
 import androidx.appcompat.widget.Toolbar
-import androidx.core.graphics.ColorUtils
-import androidx.core.view.WindowCompat
-import mozilla.components.support.ktx.android.content.getColorFromAttr
-import org.mozilla.fenix.R
-import com.google.android.material.R as materialR
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.unit.dp
+import androidx.core.graphics.ColorUtils
+import androidx.core.view.WindowCompat
+import mozilla.components.compose.base.theme.KiwiStyle
+import mozilla.components.compose.base.theme.KiwiStyles
+import mozilla.components.support.ktx.android.content.getColorFromAttr
+import org.json.JSONObject
+import org.mozilla.fenix.R
 import java.io.File
+import kotlin.math.roundToInt
+import com.google.android.material.R as materialR
 
 /**
  * Holds the installed themes and the selected one. [current] is Compose state, so every
@@ -24,11 +32,22 @@ import java.io.File
  *
  * Bundled themes live in `assets/kiwifox/themes/` (one `.json` per theme); imported ones in
  * `filesDir/kiwifox/themes/`. The selection is a theme id in the "kiwifox" preferences.
+ *
+ * Besides colors, a theme has a [KiwiStyleSpec] (corner radius, font, address bar metrics, text
+ * and interface scale). The user can override any of it per theme; [style] is the result, and it
+ * is pushed to [KiwiStyles], which the patched toolbar and Acorn theme read.
  */
 object KiwiThemeManager {
     private const val PREFS = "kiwifox"
     private const val KEY_SELECTED = "selected_theme"
+    private const val KEY_STYLE_PREFIX = "style_"
     private const val ASSET_DIR = "kiwifox/themes"
+
+    /** Style-override key used when no theme is selected: Firefox's colors can still get a style. */
+    const val DEFAULT_THEME_KEY = "firefox-default"
+
+    /** `fontFile` value in an override that cancels the theme's font file. */
+    const val NO_FONT_FILE = "none"
 
     /** The selected theme, or null for Firefox's own colors. */
     var current: KiwiTheme? by mutableStateOf(null)
@@ -36,6 +55,14 @@ object KiwiThemeManager {
 
     /** Bundled themes followed by imported ones. */
     var themes: List<KiwiTheme> by mutableStateOf(emptyList())
+        private set
+
+    /** The user's style changes for the selected theme (only the keys they changed). */
+    var overrides: KiwiStyleSpec by mutableStateOf(KiwiStyleSpec.EMPTY)
+        private set
+
+    /** The style in effect: the selected theme's own style with [overrides] on top. */
+    var style: KiwiStyleSpec by mutableStateOf(KiwiStyleSpec.EMPTY)
         private set
 
     @Volatile
@@ -57,12 +84,31 @@ object KiwiThemeManager {
         val selectedId = prefs(app).getString(KEY_SELECTED, null)
         themes = all
         current = all.firstOrNull { it.id == selectedId }
+        refreshStyle(app)
     }
 
     fun select(context: Context, theme: KiwiTheme?) {
         prefs(context).edit().putString(KEY_SELECTED, theme?.id).apply()
         current = theme
+        refreshStyle(context.applicationContext)
     }
+
+    /** Replaces the user's style overrides for the selected theme. An empty spec restores the theme's own style. */
+    fun setOverrides(context: Context, spec: KiwiStyleSpec) {
+        val key = styleKey()
+        val clamped = spec.clamped()
+        val editor = prefs(context).edit()
+        if (clamped.isEmpty) editor.remove(key) else editor.putString(key, clamped.toJson().toString())
+        editor.apply()
+        refreshStyle(context.applicationContext)
+    }
+
+    /**
+     * True when going from style [a] to [b] needs the activity recreated: text and interface scale
+     * live in the activity configuration, and the XML font overlay is applied when the activity starts.
+     */
+    fun needsRecreate(a: KiwiStyleSpec, b: KiwiStyleSpec): Boolean =
+        a.textScale != b.textScale || a.uiScale != b.uiScale || a.fontFamily != b.fontFamily
 
     /** Writes an imported theme to disk under a fresh id and returns the stored copy. */
     fun saveImported(context: Context, theme: KiwiTheme): KiwiTheme {
@@ -81,17 +127,61 @@ object KiwiThemeManager {
     fun delete(context: Context, theme: KiwiTheme) {
         if (theme.builtIn) return
         File(importDir(context), "${theme.id}.json").delete()
+        prefs(context).edit().remove(KEY_STYLE_PREFIX + theme.id).apply()
         if (current?.id == theme.id) select(context, null)
         reload(context)
     }
 
+    /** Copies a .ttf/.otf font into the app and returns the file name to use as `fontFile`. */
+    fun importFont(context: Context, bytes: ByteArray, displayName: String): String {
+        val ext = displayName.substringAfterLast('.', "").lowercase()
+        if (ext != "ttf" && ext != "otf") {
+            throw ThemeImportException("only .ttf and .otf fonts work on Android (got '$displayName'; convert woff/woff2 first)")
+        }
+        val base = displayName.substringBeforeLast('.').replace(Regex("[^A-Za-z0-9._-]+"), "-").trim('-').ifBlank { "font" }
+        val dir = fontDir(context)
+        dir.mkdirs()
+        val file = File(dir, "$base.$ext")
+        file.writeBytes(bytes)
+        runCatching { Typeface.createFromFile(file) }.onFailure {
+            file.delete()
+            throw ThemeImportException("not a usable font file: ${it.message}")
+        }
+        return file.name
+    }
+
+    /** Fonts imported into the app, by file name. */
+    fun importedFonts(context: Context): List<String> =
+        fontDir(context).listFiles { f -> f.isFile }?.map { it.name }?.sorted() ?: emptyList()
+
+    /**
+     * Applies the style's text and interface scale to an activity's base context, as desktop's
+     * font size and `layout.css.devPixelsPerPx` scale the browser chrome. Covers XML and Compose
+     * UI alike; web content keeps its own zoom. Call from `attachBaseContext`.
+     */
+    fun wrapBaseContext(base: Context): Context {
+        ensureLoaded(base)
+        val ui = style.uiScale ?: 1f
+        val text = style.textScale ?: 1f
+        if (ui == 1f && text == 1f) return base
+        val config = Configuration(base.resources.configuration)
+        if (ui != 1f) config.densityDpi = (config.densityDpi * ui).roundToInt()
+        if (text != 1f) config.fontScale = config.fontScale * text
+        return base.createConfigurationContext(config)
+    }
+
     /**
      * Applies the static theme overlay generated for a bundled theme (see apply_kiwifox.py), so XML
-     * screens such as Settings take the theme's colors. Must run before the activity inflates views;
-     * imported themes have no overlay and keep Firefox's XML colors. Returns true when applied.
+     * screens such as Settings take the theme's colors, and the font overlay for the style's font
+     * family. Must run before the activity inflates views; imported themes have no color overlay and
+     * keep Firefox's XML colors. Returns true when a color overlay was applied.
      */
     fun applyOverlay(activity: Activity): Boolean {
         ensureLoaded(activity)
+        style.fontFamily?.let { family ->
+            val fontId = activity.resources.getIdentifier(fontOverlayName(family), "style", activity.packageName)
+            if (fontId != 0) activity.theme.applyStyle(fontId, true)
+        }
         val theme = current ?: return false
         if (!theme.builtIn) return false
         val resId = activity.resources.getIdentifier(overlayName(theme), "style", activity.packageName)
@@ -103,6 +193,9 @@ object KiwiThemeManager {
     /** Style name of a bundled theme's overlay: `KiwiFoxOverlay_<file name>` with non-alphanumerics as `_`. */
     fun overlayName(theme: KiwiTheme): String =
         "KiwiFoxOverlay_" + theme.id.removePrefix("bundled-").replace(Regex("[^A-Za-z0-9]"), "_").lowercase()
+
+    /** Style name of the XML font overlay for an Android font family (generated by apply_kiwifox.py). */
+    fun fontOverlayName(family: String): String = "KiwiFoxFont_" + family.replace('-', '_')
 
     /**
      * Tints the parts of the activity chrome that are XML, not Compose: the settings screens' top app
@@ -136,9 +229,54 @@ object KiwiThemeManager {
         }
     }
 
+    private fun styleKey() = KEY_STYLE_PREFIX + (current?.id ?: DEFAULT_THEME_KEY)
+
+    private fun refreshStyle(context: Context) {
+        overrides = prefs(context).getString(styleKey(), null)
+            ?.let { runCatching { KiwiStyleSpec.fromJson(JSONObject(it)) }.getOrNull() }
+            ?: KiwiStyleSpec.EMPTY
+        style = (current?.style ?: KiwiStyleSpec.EMPTY).overlay(overrides)
+        KiwiStyles.current = toComposeStyle(context, style, current)
+    }
+
+    private fun toComposeStyle(context: Context, spec: KiwiStyleSpec, theme: KiwiTheme?): KiwiStyle {
+        fun color(roles: Map<String, Int>?, key: String) = roles?.get(key)?.let { Color(it) } ?: Color.Unspecified
+        return KiwiStyle(
+            fieldCornerRadius = spec.fieldRadius?.takeIf { it >= 0f }?.dp,
+            fieldHeight = (spec.fieldHeight ?: KiwiStyleSpec.MAX_FIELD_HEIGHT).dp,
+            fieldBorderWidth = (spec.fieldBorderWidth ?: 0f).dp,
+            fieldBorderLight = color(theme?.light, "fieldBorder"),
+            fieldBorderDark = color(theme?.dark, "fieldBorder"),
+            fieldBorderFocusLight = color(theme?.light, "fieldBorderFocus"),
+            fieldBorderFocusDark = color(theme?.dark, "fieldBorderFocus"),
+            cornerScale = spec.cornerScale ?: 1f,
+            fontFamily = fontFamily(context, spec),
+        )
+    }
+
+    @Suppress("ReturnCount")
+    private fun fontFamily(context: Context, spec: KiwiStyleSpec): FontFamily? {
+        val fileName = spec.fontFile?.takeIf { it != NO_FONT_FILE }
+        if (fileName != null) {
+            val file = File(fontDir(context), fileName)
+            val typeface = if (file.isFile) runCatching { Typeface.createFromFile(file) }.getOrNull() else null
+            if (typeface != null) return FontFamily(typeface)
+        }
+        return when (val name = spec.fontFamily) {
+            null -> null
+            "sans-serif" -> FontFamily.SansSerif
+            "serif" -> FontFamily.Serif
+            "monospace" -> FontFamily.Monospace
+            "cursive" -> FontFamily.Cursive
+            else -> FontFamily(Typeface.create(name, Typeface.NORMAL))
+        }
+    }
+
     private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     private fun importDir(context: Context) = File(context.filesDir, "kiwifox/themes")
+
+    private fun fontDir(context: Context) = File(context.filesDir, "kiwifox/fonts")
 
     private fun loadBundled(context: Context): List<KiwiTheme> {
         val names = context.assets.list(ASSET_DIR)?.filter { it.endsWith(".json") }?.sorted() ?: emptyList()

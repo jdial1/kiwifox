@@ -35,14 +35,18 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -65,15 +69,36 @@ import org.mozilla.fenix.theme.FirefoxTheme
 /**
  * Settings > Customize > Toolbar themes. Laid out like the add-ons manager: an "Installed"
  * section where exactly one entry is active, an "r/FirefoxCSS" section listing [ThemeCatalog]
- * with an Add button per theme, and import-from-link / import-file actions.
+ * with an Add button per theme, import-from-link / import-file actions, and a Style section
+ * that edits the selected theme's radius, font, address bar and scale settings.
  */
 class KiwiThemesFragment : Fragment(), SystemInsetsPaddedFragment {
-    private var status by mutableStateOf<String?>(null)
     private var busy by mutableStateOf(false)
-
-    /** Per catalogue entry: the last Add outcome (error text), shown under the row. */
-    private val catalogStatus = mutableStateMapOf<String, String>()
     private var catalogBusy by mutableStateOf<String?>(null)
+    private var fonts by mutableStateOf<List<String>>(emptyList())
+
+    private val openFont = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri ?: return@registerForActivityResult
+        val context = requireContext().applicationContext
+        viewLifecycleOwner.lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val name = queryDisplayName(uri) ?: "font.ttf"
+                    val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                        ?: throw ThemeImportException("could not read the selected file")
+                    KiwiThemeManager.importFont(context, bytes, name)
+                }
+            }
+            if (!isAdded) return@launch
+            result.fold(
+                onSuccess = { file ->
+                    fonts = KiwiThemeManager.importedFonts(context)
+                    applyStyle(KiwiThemeManager.overrides.copy(fontFile = file))
+                },
+                onFailure = { e -> status = getString(R.string.kiwifox_import_failed, e.message ?: e.javaClass.simpleName) },
+            )
+        }
+    }
 
     private val openDocument = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri ?: return@registerForActivityResult
@@ -88,6 +113,7 @@ class KiwiThemesFragment : Fragment(), SystemInsetsPaddedFragment {
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         KiwiThemeManager.ensureLoaded(requireContext())
+        fonts = KiwiThemeManager.importedFonts(requireContext())
         return ComposeView(requireContext()).apply {
             setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
             setContent {
@@ -99,10 +125,14 @@ class KiwiThemesFragment : Fragment(), SystemInsetsPaddedFragment {
                         busy = busy,
                         catalogStatus = catalogStatus,
                         catalogBusy = catalogBusy,
+                        style = KiwiThemeManager.style,
+                        overrides = KiwiThemeManager.overrides,
+                        fonts = fonts,
+                        onStyleChange = { applyStyle(it) },
+                        onImportFont = { openFont.launch(arrayOf("*/*")) },
                         onSelect = {
                             val before = KiwiThemeManager.current
-                            KiwiThemeManager.select(requireContext(), it)
-                            KiwiThemeManager.applyToActivity(requireActivity())
+                            selectTheme(it)
                             // Bundled themes restyle the XML screens through a theme overlay, which only
                             // takes effect on a fresh activity.
                             if (before?.builtIn == true || it?.builtIn == true) requireActivity().recreate()
@@ -139,9 +169,8 @@ class KiwiThemesFragment : Fragment(), SystemInsetsPaddedFragment {
             result.fold(
                 onSuccess = { imported ->
                     val stored = KiwiThemeManager.saveImported(context, imported.theme.copy(name = entry.name))
-                    KiwiThemeManager.select(context, stored)
-                    KiwiThemeManager.applyToActivity(requireActivity())
                     if (imported.notes.isNotEmpty()) catalogStatus[entry.repoUrl] = imported.notes.joinToString("\n")
+                    selectTheme(stored)
                 },
                 onFailure = { e -> catalogStatus[entry.repoUrl] = e.message ?: e.javaClass.simpleName },
             )
@@ -161,18 +190,41 @@ class KiwiThemesFragment : Fragment(), SystemInsetsPaddedFragment {
             result.fold(
                 onSuccess = { imported ->
                     val stored = KiwiThemeManager.saveImported(context, imported.theme)
-                    KiwiThemeManager.select(context, stored)
-                    KiwiThemeManager.applyToActivity(requireActivity())
                     status = buildString {
                         append(getString(R.string.kiwifox_import_done, stored.name))
                         imported.notes.forEach { append("\n• ").append(it) }
                     }
+                    selectTheme(stored)
                 },
                 onFailure = { e ->
                     status = getString(R.string.kiwifox_import_failed, e.message ?: e.javaClass.simpleName)
                 },
             )
         }
+    }
+
+    /** Selects [theme]; recreates the activity when its text/interface scale or XML font differ. */
+    private fun selectTheme(theme: KiwiTheme?) {
+        val before = KiwiThemeManager.style
+        KiwiThemeManager.select(requireContext(), theme)
+        KiwiThemeManager.applyToActivity(requireActivity())
+        if (KiwiThemeManager.needsRecreate(before, KiwiThemeManager.style)) requireActivity().recreate()
+    }
+
+    /** Stores the user's style overrides for the selected theme and applies them. */
+    private fun applyStyle(spec: KiwiStyleSpec) {
+        val before = KiwiThemeManager.style
+        KiwiThemeManager.setOverrides(requireContext(), spec)
+        if (KiwiThemeManager.needsRecreate(before, KiwiThemeManager.style)) requireActivity().recreate()
+    }
+
+    private companion object {
+        // Kept outside the fragment instance so import results survive the activity being recreated
+        // (scale and font changes recreate it).
+        var status by mutableStateOf<String?>(null)
+
+        /** Per catalogue entry: the last Add outcome (error text), shown under the row. */
+        val catalogStatus = mutableStateMapOf<String, String>()
     }
 
     private fun queryDisplayName(uri: android.net.Uri): String? =
@@ -191,6 +243,11 @@ private fun KiwiThemesScreen(
     busy: Boolean,
     catalogStatus: Map<String, String>,
     catalogBusy: String?,
+    style: KiwiStyleSpec,
+    overrides: KiwiStyleSpec,
+    fonts: List<String>,
+    onStyleChange: (KiwiStyleSpec) -> Unit,
+    onImportFont: () -> Unit,
     onSelect: (KiwiTheme?) -> Unit,
     onDelete: (KiwiTheme) -> Unit,
     onAddCatalog: (ThemeCatalog.Entry) -> Unit,
@@ -219,7 +276,8 @@ private fun KiwiThemesScreen(
         items(themes, key = { it.id }) { theme ->
             ThemeRow(
                 name = theme.name,
-                subtitle = if (theme.builtIn) stringResource(R.string.kiwifox_theme_bundled) else theme.source,
+                subtitle = (if (theme.builtIn) stringResource(R.string.kiwifox_theme_bundled) else theme.source) +
+                    (if (theme.style.isEmpty) "" else " · " + stringResource(R.string.kiwifox_theme_styled)),
                 swatch = theme,
                 onClick = { onSelect(theme) },
                 trailing = {
@@ -231,6 +289,19 @@ private fun KiwiThemesScreen(
                     RadioButton(selected = selected?.id == theme.id, onClick = { onSelect(theme) })
                 },
             )
+        }
+
+        item {
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+            StyleSection(
+                themeName = selected?.name ?: stringResource(R.string.kiwifox_theme_default),
+                style = style,
+                overrides = overrides,
+                fonts = fonts,
+                onChange = onStyleChange,
+                onImportFont = onImportFont,
+            )
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
         }
 
         item {
@@ -426,5 +497,190 @@ private fun MiniBar(bar: Color?, field: Color?, text: Color?) {
                     .background(text ?: Color.Transparent, RoundedCornerShape(1.dp)),
             )
         }
+    }
+}
+
+/**
+ * Style editor for the selected theme. Every control writes a user override on top of the theme's
+ * own style (the values a desktop userChrome.css theme sets); Reset drops the overrides.
+ */
+@Composable
+@Suppress("LongMethod", "LongParameterList")
+private fun StyleSection(
+    themeName: String,
+    style: KiwiStyleSpec,
+    overrides: KiwiStyleSpec,
+    fonts: List<String>,
+    onChange: (KiwiStyleSpec) -> Unit,
+    onImportFont: () -> Unit,
+) {
+    var showFonts by remember { mutableStateOf(false) }
+    SectionHeader(stringResource(R.string.kiwifox_style_title, themeName))
+    Text(
+        text = style.describe().joinToString(" · ").ifEmpty { stringResource(R.string.kiwifox_style_stock) },
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+    )
+
+    val pill = style.fieldRadius == null || style.fieldRadius < 0f
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            stringResource(R.string.kiwifox_style_pill),
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f),
+        )
+        Switch(
+            checked = pill,
+            onCheckedChange = { on -> onChange(overrides.copy(fieldRadius = if (on) KiwiStyleSpec.PILL else 8f)) },
+        )
+    }
+    if (!pill) {
+        StyleSlider(
+            label = stringResource(R.string.kiwifox_style_field_radius),
+            value = style.fieldRadius,
+            range = 0f..KiwiStyleSpec.MAX_FIELD_RADIUS,
+            steps = KiwiStyleSpec.MAX_FIELD_RADIUS.toInt() - 1,
+            format = { "${it.toInt()} dp" },
+            onDone = { onChange(overrides.copy(fieldRadius = it.toInt().toFloat())) },
+        )
+    }
+    StyleSlider(
+        label = stringResource(R.string.kiwifox_style_field_height),
+        value = style.fieldHeight ?: KiwiStyleSpec.MAX_FIELD_HEIGHT,
+        range = KiwiStyleSpec.MIN_FIELD_HEIGHT..KiwiStyleSpec.MAX_FIELD_HEIGHT,
+        steps = (KiwiStyleSpec.MAX_FIELD_HEIGHT - KiwiStyleSpec.MIN_FIELD_HEIGHT).toInt() - 1,
+        format = { "${it.toInt()} dp" },
+        onDone = { onChange(overrides.copy(fieldHeight = it.toInt().toFloat())) },
+    )
+    StyleSlider(
+        label = stringResource(R.string.kiwifox_style_field_border),
+        value = style.fieldBorderWidth ?: 0f,
+        range = 0f..KiwiStyleSpec.MAX_BORDER,
+        steps = 5,
+        format = { "%.1f dp".format(it) },
+        onDone = { onChange(overrides.copy(fieldBorderWidth = it)) },
+    )
+    StyleSlider(
+        label = stringResource(R.string.kiwifox_style_corners),
+        value = style.cornerScale ?: 1f,
+        range = 0f..KiwiStyleSpec.MAX_CORNER_SCALE,
+        steps = 11,
+        format = { "×%.2f".format(it) },
+        onDone = { onChange(overrides.copy(cornerScale = it)) },
+    )
+    StyleSlider(
+        label = stringResource(R.string.kiwifox_style_text_scale),
+        value = style.textScale ?: 1f,
+        range = KiwiStyleSpec.MIN_TEXT_SCALE..KiwiStyleSpec.MAX_TEXT_SCALE,
+        steps = 11,
+        format = { "×%.2f".format(it) },
+        onDone = { onChange(overrides.copy(textScale = it)) },
+    )
+    StyleSlider(
+        label = stringResource(R.string.kiwifox_style_ui_scale),
+        value = style.uiScale ?: 1f,
+        range = KiwiStyleSpec.MIN_UI_SCALE..KiwiStyleSpec.MAX_UI_SCALE,
+        steps = 8,
+        format = { "×%.2f".format(it) },
+        onDone = { onChange(overrides.copy(uiScale = it)) },
+    )
+
+    val fontLabel = style.fontFile?.takeIf { it != KiwiThemeManager.NO_FONT_FILE }
+        ?: style.fontFamily
+        ?: stringResource(R.string.kiwifox_style_font_system)
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(stringResource(R.string.kiwifox_style_font), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+            Text(fontLabel, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        OutlinedButton(onClick = { showFonts = true }) { Text(stringResource(R.string.kiwifox_style_font_choose)) }
+        OutlinedButton(onClick = onImportFont) { Text(stringResource(R.string.kiwifox_style_font_import)) }
+    }
+    Row(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+        TextButton(onClick = { onChange(KiwiStyleSpec.EMPTY) }, enabled = !overrides.isEmpty) {
+            Text(stringResource(R.string.kiwifox_style_reset))
+        }
+    }
+    Text(
+        text = stringResource(R.string.kiwifox_style_hint),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+    )
+
+    if (showFonts) {
+        // (label, fontFamily, fontFile); null family + null file = the theme's own font.
+        val systemLabel = stringResource(R.string.kiwifox_style_font_system)
+        val themeLabel = stringResource(R.string.kiwifox_style_font_theme)
+        val choices = buildList {
+            add(Triple(themeLabel, null as String?, null as String?))
+            add(Triple(systemLabel, "sans-serif", KiwiThemeManager.NO_FONT_FILE))
+            KiwiStyleSpec.FONT_FAMILIES.filter { it != "sans-serif" }.forEach { add(Triple(it, it, KiwiThemeManager.NO_FONT_FILE)) }
+            fonts.forEach { add(Triple(it, overrides.fontFamily, it)) }
+        }
+        AlertDialog(
+            onDismissRequest = { showFonts = false },
+            title = { Text(stringResource(R.string.kiwifox_style_font)) },
+            text = {
+                LazyColumn {
+                    items(choices) { (label, family, file) ->
+                        val isSelected = overrides.fontFamily == family && overrides.fontFile == file
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    showFonts = false
+                                    onChange(overrides.copy(fontFamily = family, fontFile = file))
+                                }
+                                .padding(vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RadioButton(selected = isSelected, onClick = null)
+                            Text(label, modifier = Modifier.padding(start = 12.dp), color = MaterialTheme.colorScheme.onSurface)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showFonts = false }) { Text(stringResource(R.string.kiwifox_cancel)) }
+            },
+        )
+    }
+}
+
+/** A labelled slider that previews while dragging and commits once on release. */
+@Composable
+@Suppress("LongParameterList")
+private fun StyleSlider(
+    label: String,
+    value: Float,
+    range: ClosedFloatingPointRange<Float>,
+    steps: Int,
+    format: (Float) -> String,
+    onDone: (Float) -> Unit,
+) {
+    var current by remember { mutableFloatStateOf(value) }
+    LaunchedEffect(value) { current = value }
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(label, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
+            Text(format(current), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Slider(
+            value = current.coerceIn(range.start, range.endInclusive),
+            onValueChange = { current = it },
+            valueRange = range,
+            steps = steps,
+            onValueChangeFinished = { onDone(current) },
+        )
     }
 }

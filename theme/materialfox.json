@@ -25,5 +25,9 @@
     "onBackground": "#606368",
     "onSurface": "#606368",
     "onSurfaceVariant": "#606368"
+  },
+  "style": {
+    "fieldRadius": -1,
+    "cornerScale": 2
   }
 }

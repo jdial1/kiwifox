@@ -137,8 +137,12 @@ class ThemeImporter(private val client: Client) {
             css.append("\n/* $p */\n").append(fetchText(raw(p)))
             if (css.length > MAX_CSS_BYTES) break
         }
-        val imported = fromCss(css.toString(), repo)
-        return Imported(imported.theme, listOf("read ${cssFiles.size} css file(s) from $owner/$repo") + imported.notes)
+        // user.js carries the prefs that change layout on desktop (density, devPixelsPerPx).
+        val userJsPath = files.filter { it.endsWith("user.js") }.minByOrNull { it.count { c -> c == '/' } }
+        val userJs = userJsPath?.let { runCatching { fetchText(raw(it)) }.getOrNull() }
+        val imported = fromCss(css.toString(), repo, userJs)
+        val read = "read ${cssFiles.size} css file(s)" + (if (userJs != null) " and $userJsPath" else "") + " from $owner/$repo"
+        return Imported(imported.theme, listOf(read) + imported.notes)
     }
 
     // ---- formats -------------------------------------------------------------------------------
@@ -155,15 +159,25 @@ class ThemeImporter(private val client: Client) {
     }
 
     private fun fromZip(bytes: ByteArray, name: String): Imported {
+        // A zipped `chrome` folder (how many r/FirefoxCSS themes are released) is read like a repository.
+        val css = StringBuilder()
+        var userJs: String? = null
         ZipInputStream(ByteArrayInputStream(bytes)).use { zip ->
             while (true) {
                 val entry = zip.nextEntry ?: break
+                if (entry.isDirectory) continue
                 if (entry.name == "manifest.json" || entry.name.endsWith("/manifest.json")) {
                     return fromManifestText(zip.readBytes().toString(Charsets.UTF_8), name)
                 }
+                if (entry.name.endsWith(".css") && css.length < MAX_CSS_BYTES) {
+                    css.append("\n/* ${entry.name} */\n").append(zip.readBytes().toString(Charsets.UTF_8))
+                } else if (entry.name.endsWith("user.js") && userJs == null) {
+                    userJs = zip.readBytes().toString(Charsets.UTF_8)
+                }
             }
         }
-        throw ThemeImportException("archive has no manifest.json; this is not a Firefox theme package")
+        if (css.isNotEmpty()) return fromCss(css.toString(), name, userJs)
+        throw ThemeImportException("archive has no manifest.json or .css files; this is not a Firefox theme package")
     }
 
     private fun fromManifestText(text: String, name: String): Imported {
@@ -182,10 +196,14 @@ class ThemeImporter(private val client: Client) {
         return Imported(converted.theme, converted.notes)
     }
 
-    private fun fromCss(css: String, name: String): Imported {
+    private fun fromCss(css: String, name: String, userJs: String? = null): Imported {
         val (manifest, notes) = CssThemeExtractor.toManifest(css, name)
         val converted = ThemeConverter.convert(manifest, name)
-        return Imported(converted.theme, notes + converted.notes)
+        // Colors come from the manifest; radius, font, sizes and scale from the CSS rules and user.js.
+        val layout = CssStyleExtractor.extract(css, userJs)
+        val style = converted.theme.style.overlay(layout.style)
+        val layoutNotes = if (layout.style.isEmpty) listOf("no layout settings that apply on Android") else layout.notes
+        return Imported(converted.theme.copy(style = style), notes + converted.notes + layoutNotes)
     }
 
     // ---- network -------------------------------------------------------------------------------

@@ -52,7 +52,9 @@ object ThemeConverter {
     private const val MIN_ICON_CONTRAST = 3.0
 
     /** The subset of desktop keys that have a place on the Android toolbar. */
-    private val SUPPORTED_KEYS = setOf("frame", "toolbar", "toolbar_field", "toolbar_field_text", "toolbar_field_border_focus")
+    private val SUPPORTED_KEYS = setOf(
+        "frame", "toolbar", "toolbar_field", "toolbar_field_text", "toolbar_field_border", "toolbar_field_border_focus",
+    )
 
     class Converted(val theme: KiwiTheme, val notes: List<String>)
 
@@ -81,7 +83,13 @@ object ThemeConverter {
         val light = schemeFromColors(colors, notes, "light")
         val dark = if (darkColors != null && darkColors.length() > 0) schemeFromColors(darkColors, notes, "dark") else light
         val name = manifest.optString("name").ifBlank { fallbackName }
-        return Converted(KiwiTheme(id = "", name = name, source = name, light = light, dark = dark, builtIn = false), notes)
+        // Desktop draws a 1px border around the URL field when the theme colors it.
+        val bordered = "fieldBorder" in light || "fieldBorder" in dark
+        val style = if (bordered) KiwiStyleSpec(fieldBorderWidth = 1f) else KiwiStyleSpec.EMPTY
+        return Converted(
+            KiwiTheme(id = "", name = name, source = name, light = light, dark = dark, builtIn = false, style = style),
+            notes,
+        )
     }
 
     /**
@@ -126,6 +134,10 @@ object ThemeConverter {
             val over = accent.over(bar).argb()
             roles["primary"] = over
             roles["tertiary"] = over
+            if (accent.a > 0.0) roles["fieldBorderFocus"] = over
+        }
+        get("toolbar_field_border")?.takeIf { it.a > 0.0 }?.let { border ->
+            roles["fieldBorder"] = border.over(field).argb()
         }
         return roles
     }

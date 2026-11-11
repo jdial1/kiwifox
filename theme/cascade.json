@@ -25,5 +25,8 @@
     "onBackground": "#E0DEF4",
     "onSurface": "#E0DEF4",
     "onSurfaceVariant": "#E0DEF4"
+  },
+  "style": {
+    "cornerScale": 2
   }
 }

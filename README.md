@@ -40,7 +40,78 @@ Bundled themes: `theme/kiwi.json`, `theme/cascade.json` (Rosé Pine),
   are refused with the reason shown in the app.
 * Firefox Color share links are refused: their payload is LZMA-compressed; export
   the theme from Firefox Color and import the file.
+* Besides colors, a theme has a `style` (radius, font, sizes, scale); see
+  [Layout: radius, font, sizes, scale](#layout-radius-font-sizes-scale).
 * `inject_theme.py` is the old one-theme-per-APK injector, kept for reference.
+
+## Layout: radius, font, sizes, scale
+
+Desktop themes change more than colors. Fenix hard-codes those things (the URL
+pill is `CircleShape`, 48 dp, fixed `sp`; `AcornTheme` pins its shapes and a
+static typography), so a theme could not reach them. Now a theme JSON may carry a
+`style` object, every key optional (absent = stock Firefox for Android):
+
+| Key | Range | Applied by |
+|---|---|---|
+| `fieldRadius` | dp, `-1` = pill | address field shape (display and edit toolbar) |
+| `fieldHeight` | 36..48 dp | address field inside the toolbar's fixed 48 dp slot (web content offsets are unchanged) |
+| `fieldBorderWidth` | 0..3 dp | field border; colors are the light/dark `fieldBorder` / `fieldBorderFocus` roles |
+| `cornerScale` | 0..3 | Material shapes (menus, cards, dialogs, buttons that use `MaterialTheme.shapes`) |
+| `fontFamily` | an Android family (`monospace`, `serif`, `sans-serif-condensed`, ...) | all Compose text (Acorn + Material typography, URL text) and XML text via a generated `KiwiFoxFont_*` overlay |
+| `fontFile` | a `.ttf`/`.otf` imported in the app | Compose text only (XML has no runtime font hook) |
+| `textScale` | 0.8..1.4 | activity `fontScale` (XML and Compose) |
+| `uiScale` | 0.8..1.25 | activity `densityDpi`, like desktop `layout.css.devPixelsPerPx`; web content keeps its own zoom |
+
+How it reaches the UI: `KiwiThemeManager` merges the theme's style with the
+user's per-theme overrides and publishes it as `KiwiStyles.current` (snapshot
+state in android-components `compose-base`, file `KiwiStyle.kt`). `apply_kiwifox.py`
+patches `AcornTheme` (shapes, Material typography, `AcornTheme.typography`) and
+the browser toolbar (`FullDisplayToolbar`, `BrowserEditToolbar`, `Origin`,
+`InlineAutocompleteTextField`) to read it, and `HomeActivity.attachBaseContext`
+to apply the scales. Radius, height, border and corner changes are instant;
+text/interface scale and the XML font recreate the activity.
+
+**From desktop themes** (`CssStyleExtractor`, Kotlin only): reads rules on
+`.urlbar-background`/`#urlbar-background`/`#urlbar`/the input container, `.tab-background`,
+panels and chrome root selectors, plus `--urlbar-height`, `--urlbar-border-radius`,
+`--tab-border-radius`, `--toolbarbutton-border-radius`, `--arrowpanel-border-radius`,
+`--border-radius-*`, and from the theme's `user.js` `browser.uidensity` and
+`layout.css.devPixelsPerPx`. Cascade order is respected (`!important`, specificity,
+source order), CSS nesting is walked, `:not(...)` counts as true and state
+selectors (`[focused]`, `:hover`, ...) are skipped. Desktop px map to Android with
+the 32 px desktop bar = 48 dp: heights scale by 1.5, a radius keeps its ratio to
+the bar height (≥ half = pill). Fonts map by name (JetBrains Mono -> `monospace`,
+Georgia -> `serif`, ...); fonts Android lacks fall back as desktop would, and
+the note says to import the `.ttf`. AMO manifests contribute only the border
+colors (`toolbar_field_border`, `_focus`), as on desktop.
+
+**Style editor**: Settings > Customize > Toolbar themes > Style edits the
+selected theme (or Firefox default): round/corner radius, field height, border,
+corner scale, text size, interface scale, font (Android families or an imported
+`.ttf`). Reset returns to the theme's values.
+
+Catalogue results (unit test `catalogue layouts`, 2026-11-10):
+
+| Theme | Style on Android |
+|---|---|
+| ArcWTF | pill field, 42 dp tall (28 px desktop bar) |
+| FF-ULTIMA, Firefox-Mod-Blur | 15 dp field corners, corners ×2.5 |
+| Firefox-UI-Fix | 12 dp field corners |
+| MaterialFox | pill field, corners ×2 |
+| ShyFox | 17 dp field corners, corners ×2.88 |
+| Cascade | corners ×2 (its 8 px radius); field keeps desktop's default radius |
+| GNOME theme | 13 dp field corners (9 px on a 34 px bar), corners ×2.25 |
+| SimpleFox | square corners (×0) |
+| WaveFox | nothing (all layout behind `-moz-pref()` toggles) |
+
+None of the ten sets a chrome font. Still not mapped: tab strip/sidebar layout,
+toolbar button placement, icon recolouring (the toolbar uses one `onSurface`
+for text and icons), Fenix Compose code that hard-codes its own
+`RoundedCornerShape(...)` instead of `MaterialTheme.shapes`, and Material
+shapes in XML screens.
+
+`tools/check_apply_pristine.sh` runs the full `apply_kiwifox.py` on `git HEAD`
+copies of every patched upstream file and checks the result equals the build tree.
 
 ## What can be imported
 
@@ -50,7 +121,7 @@ Bundled themes: `theme/kiwi.json`, `theme/cascade.json` (Rosé Pine),
 | Firefox Color exports | yes | same format; its broken `.xpi` export is fine for us, only `manifest.json` is read |
 | Mozilla bundled themes (Alpenglow) | yes | tested; uses `hsla()` and `theme_experiment` keys |
 | Mozilla Light/Dark | n/a | they define no colors, only `color_scheme`; pick the mode in Firefox settings |
-| r/FirefoxCSS `userChrome.css` themes | **no** | see below |
+| r/FirefoxCSS `userChrome.css` themes (GitHub repo, `.css`, or a zipped `chrome` folder) | partly | colors from literal `:root` values (see below), layout from rules and `user.js` (see Layout) |
 
 ## Desktop rules mirrored (Firefox 159 source)
 
@@ -66,8 +137,8 @@ Bundled themes: `theme/kiwi.json`, `theme/cascade.json` (Rosé Pine),
 ## Android limits (reported by the importer, never hidden)
 
 * Only `frame`, `toolbar`, `toolbar_field`, `toolbar_field_text`,
-  `toolbar_field_border_focus` have a place on the Android toolbar. The other
-  37 schema keys and all images are listed as `dropped:`.
+  `toolbar_field_border`, `toolbar_field_border_focus` have a place on the
+  Android toolbar. The other 36 schema keys and all images are listed as `dropped:`.
 * Android has one bar where desktop has frame + toolbar. The bar is drawn as
   `toolbar` layered over `frame` (design decision, not a desktop rule).
 * The Android toolbar paints URL text and bar icons with one Material role

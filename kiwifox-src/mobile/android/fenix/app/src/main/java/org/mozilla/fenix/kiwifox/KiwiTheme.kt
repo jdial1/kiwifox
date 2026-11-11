@@ -13,7 +13,9 @@ import org.json.JSONObject
  *
  * The JSON format is the one produced by the desktop `import_theme.py` pipeline:
  * `{"_source": "...", "light": {"surface": "#RRGGBB", ...}, "dark": {...}}`.
- * Only roles listed in [ROLES] are applied; unknown roles are kept in the file but ignored.
+ * Only roles listed in [ROLES] are applied to the color scheme; [EXTRA_ROLES] are desktop colors
+ * with no Material role (the address field border), read by [KiwiThemeManager]. The optional
+ * `style` object holds radius, font and scale settings ([KiwiStyleSpec]).
  */
 data class KiwiTheme(
     val id: String,
@@ -22,6 +24,7 @@ data class KiwiTheme(
     val light: Map<String, Int>,
     val dark: Map<String, Int>,
     val builtIn: Boolean,
+    val style: KiwiStyleSpec = KiwiStyleSpec.EMPTY,
 ) {
     /** Returns [scheme] with this theme's roles for the requested mode replaced. */
     fun apply(scheme: ColorScheme, darkMode: Boolean): ColorScheme {
@@ -48,6 +51,7 @@ data class KiwiTheme(
         json.put("name", name)
         json.put("light", rolesToJson(light))
         json.put("dark", rolesToJson(dark))
+        if (!style.isEmpty) json.put("style", style.toJson())
         return json.toString(2)
     }
 
@@ -65,6 +69,9 @@ data class KiwiTheme(
             "surfaceContainerHighest", "surfaceContainerLow", "surfaceContainerLowest",
         )
 
+        /** Desktop colors without a Material role: desktop `toolbar_field_border` and `_focus`. */
+        val EXTRA_ROLES = listOf("fieldBorder", "fieldBorderFocus")
+
         fun fromJson(id: String, text: String, builtIn: Boolean, fallbackName: String): KiwiTheme {
             val json = JSONObject(text)
             // Bundled files carry provenance in `_source`, not a display name: use the file name for those.
@@ -78,6 +85,7 @@ data class KiwiTheme(
                 light = rolesFromJson(json.optJSONObject("light")),
                 dark = rolesFromJson(json.optJSONObject("dark")),
                 builtIn = builtIn,
+                style = KiwiStyleSpec.fromJson(json.optJSONObject("style")),
             )
         }
 
@@ -85,7 +93,7 @@ data class KiwiTheme(
             if (obj == null) return emptyMap()
             val out = LinkedHashMap<String, Int>()
             for (key in obj.keys()) {
-                if (key !in ROLES) continue
+                if (key !in ROLES && key !in EXTRA_ROLES) continue
                 out[key] = parseHex(obj.getString(key))
             }
             return out

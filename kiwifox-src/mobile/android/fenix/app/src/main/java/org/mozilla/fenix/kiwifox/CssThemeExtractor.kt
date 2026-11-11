@@ -28,6 +28,10 @@ object CssThemeExtractor {
             "--toolbar-color", "--lwt-text-color",
         ),
     )
+    private val OPTIONAL_ROLES: Map<String, List<String>> = linkedMapOf(
+        "toolbar_field_border" to listOf("--toolbar-field-border-color", "--lwt-toolbar-field-border-color"),
+        "toolbar_field_border_focus" to listOf("--toolbar-field-focus-border-color", "--focus-outline-color"),
+    )
     private val LITERAL = Regex("^(#[0-9a-fA-F]{3,8}|rgba?\\([^()]*\\)|hsla?\\([^()]*\\)|[a-zA-Z-]+)$")
     private val NOT_A_COLOR = setOf("inherit", "initial", "unset", "revert", "revert-layer", "currentcolor", "none", "auto")
 
@@ -142,6 +146,12 @@ object CssThemeExtractor {
             if (fromDefault) defaulted.add(key)
             out[key] = systemColor(found ?: throw Unresolved("$scheme: no value for $key via $names"), scheme)
         }
+        // Optional: only when the theme itself sets them (desktop's own default border is transparent).
+        for ((key, names) in OPTIONAL_ROLES) {
+            val name = names.firstOrNull { it in themeVariables } ?: continue
+            val value = tryResolve(name, withDefaults, scheme) ?: continue
+            out[key] = systemColor(value, scheme)
+        }
         if (defaulted.size == ROLES.size) {
             notes.add("this theme changes layout only: all toolbar colors are Firefox's defaults")
         } else if (defaulted.isNotEmpty()) {
@@ -190,7 +200,7 @@ object CssThemeExtractor {
     }
 
     /** Root-scope custom properties for one color scheme. Later wins; `!important` beats normal. */
-    private fun collect(css: String, scheme: String): Map<String, String> {
+    internal fun collect(css: String, scheme: String): Map<String, String> {
         val found = LinkedHashMap<String, Pair<String, Boolean>>()
         walk(stripComments(css), scheme, true, found)
         return found.mapValues { it.value.first }
@@ -230,7 +240,7 @@ object CssThemeExtractor {
      * theme). Returns null when the query depends on a user pref and the block must be skipped.
      */
     @Suppress("ReturnCount")
-    private fun mediaMatches(prelude: String, scheme: String): Boolean? {
+    internal fun mediaMatches(prelude: String, scheme: String): Boolean? {
         val q = prelude.lowercase()
         if (q.contains("-moz-pref(")) return null
         SCHEME_QUERY.find(q)?.let { if (it.groupValues[1] != scheme) return false }
@@ -243,7 +253,7 @@ object CssThemeExtractor {
     }
 
     /** Splits on [sep] outside parentheses, brackets and strings. */
-    private fun splitTopLevel(text: String, sep: Char): List<String> {
+    internal fun splitTopLevel(text: String, sep: Char): List<String> {
         val out = ArrayList<String>()
         var depth = 0
         var start = 0
@@ -264,11 +274,11 @@ object CssThemeExtractor {
         return out
     }
 
-    private class Rule(val prelude: String, val body: String?)
+    internal class Rule(val prelude: String, val body: String?)
 
     /** Splits a stylesheet (or a block body) into rules, matching braces and skipping strings. */
     @Suppress("NestedBlockDepth", "LoopWithTooManyJumpStatements")
-    private fun splitRules(css: String): List<Rule> {
+    internal fun splitRules(css: String): List<Rule> {
         val rules = ArrayList<Rule>()
         var i = 0
         var start = 0
@@ -320,7 +330,7 @@ object CssThemeExtractor {
     }
 
     /** `name: value` pairs of a declaration block, splitting on `;` outside parentheses and strings. */
-    private fun declarations(body: String): List<Pair<String, String>> {
+    internal fun declarations(body: String): List<Pair<String, String>> {
         val out = ArrayList<Pair<String, String>>()
         var depth = 0
         var i = 0
@@ -346,7 +356,7 @@ object CssThemeExtractor {
         return out
     }
 
-    private fun stripComments(css: String): String {
+    internal fun stripComments(css: String): String {
         val sb = StringBuilder(css.length)
         var i = 0
         while (i < css.length) {
