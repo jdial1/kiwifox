@@ -388,6 +388,10 @@ private fun KiwiThemesScreen(
                 }
             }
         }
+        item {
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+            UpdateSection()
+        }
         item { Spacer(Modifier.height(24.dp)) }
     }
 
@@ -417,6 +421,33 @@ private fun KiwiThemesScreen(
                 TextButton(onClick = { showUrlDialog = false }) { Text(stringResource(R.string.kiwifox_cancel)) }
             },
         )
+    }
+}
+
+/** KiwiFox's own build and a manual update check (KiwiUpdater; releases from the GitHub repository). */
+@Composable
+private fun UpdateSection() {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    SectionHeader("KiwiFox updates")
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                KiwiUpdater.describe(context),
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                "Releases from github.com/${KiwiUpdater.REPOSITORY}, checked every 6 hours",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        androidx.compose.material3.TextButton(
+            onClick = { with(KiwiUpdater) { context.findActivity() }?.let { KiwiUpdater.check(it, manual = true) } },
+        ) { Text("Check now") }
     }
 }
 
