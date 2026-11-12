@@ -645,7 +645,8 @@ def patch_home_fragment_background(text: str) -> str:
     """Desktop `ntp_background` behind the homepage (a user wallpaper still draws on top, as on desktop)."""
     text = insert_before(
         text,
-        "                        if (!isPrivateMode) {\n                            WallpaperBackground(\n",
+        # Firefox 159 passes WallpaperBackground( its arguments on the next lines, 160+ calls a one-line helper.
+        "                        if (!isPrivateMode) {\n                            WallpaperBackground(",
         f"                        if (!isPrivateMode) {KIWI_SURFACES}.HomeBackground()\n",
         "HomeFragment wallpaper",
     )

@@ -1,47 +1,83 @@
 name: Build KiwiFox
 
+# Weekly: if Mozilla has published a Firefox release that KiwiFox hasn't been built on yet, apply the
+# KiwiFox patches to it, build, and publish release build-<number>. Installed KiwiFox apps offer that release
+# as an update (KiwiUpdater). Run it by hand from the Actions tab to build a given Firefox tag or to rebuild.
+#
+# Needs the repository secret SIGNING_KEYSTORE_BASE64: the keystore the installed app was signed with
+# (base64 of ~/.android/debug.keystore on the build PC). Without it the APK couldn't install as an update,
+# so the workflow fails instead of publishing one.
+# Scheduled runs build the branch in the repository variable KIWIFOX_BRANCH (default: the default branch).
+
 on:
   schedule:
-    - cron: "0 6 * * *"
+    - cron: "23 7 * * 1" # Mondays 07:23 UTC
   workflow_dispatch:
     inputs:
       tag:
-        description: "Firefox release tag (e.g. FIREFOX_159_0_1_RELEASE). Blank = latest."
+        description: "Firefox release tag (e.g. FIREFOX_160_0_RELEASE). Blank = latest."
         required: false
+      force:
+        description: "Build even if a KiwiFox release on this Firefox already exists"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
+  issues: write
+
+concurrency:
+  group: kiwifox-build
+  cancel-in-progress: false
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 300
+    timeout-minutes: 340
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'schedule' && (vars.KIWIFOX_BRANCH || github.event.repository.default_branch) || github.ref_name }}
+          fetch-depth: 0
 
-      - name: Resolve Firefox release tag
+      - name: Find the Firefox release to build
         id: tag
         env:
           GH_TOKEN: ${{ github.token }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+          FORCE: ${{ github.event.inputs.force }}
         run: |
-          TAG="${{ github.event.inputs.tag }}"
+          TAG="$INPUT_TAG"
           if [ -z "$TAG" ]; then
+            # Highest FIREFOX_<major>_<minor>[_<patch>]_RELEASE by version number (sort -V puts 158_0_1 before 158_0).
             TAG=$(git ls-remote --tags https://github.com/mozilla-firefox/firefox \
-              | grep -oE 'FIREFOX_[0-9]+_[0-9]+(_[0-9]+)?_RELEASE$' | sort -V | tail -1)
+              | grep -oE 'FIREFOX_[0-9]+_[0-9]+(_[0-9]+)?_RELEASE$' \
+              | python3 -c 'import sys; t=[l.strip() for l in sys.stdin]; print(max(t, key=lambda s: [int(x) for x in s[8:-8].split("_")]))')
           fi
-          test -n "$TAG" || { echo "no release tag found"; exit 1; }
-          # Builds of the default branch are releases named after the Firefox tag; builds of any other
-          # branch are pre-releases named <tag>-<branch>, so they never take the stable name.
-          REL="$TAG"
-          if [ "${{ github.ref_name }}" != "${{ github.event.repository.default_branch }}" ]; then
-            REL="$TAG-$(echo '${{ github.ref_name }}' | tr '/' '-')"
-            echo "prerelease=--prerelease" >> "$GITHUB_OUTPUT"
-          fi
-          if gh release view "$REL" >/dev/null 2>&1; then
-            echo "already built $REL"; echo "skip=true" >> "$GITHUB_OUTPUT"
-          fi
+          test -n "$TAG" || { echo "no Firefox release tag found"; exit 1; }
+          VERSION=$(echo "$TAG" | sed -E 's/^FIREFOX_//; s/_RELEASE$//; s/_/./g')
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "release=$REL" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          # Release titles end in "(Firefox <version>)", so the newest release says what it was built on.
+          if [ "$FORCE" != "true" ] && gh release list -L 100 --json name -q '.[].name' | grep -qF "(Firefox $VERSION)"; then
+            echo "KiwiFox is already built on Firefox $VERSION: nothing to do"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "building KiwiFox on Firefox $VERSION ($TAG)"
+          fi
+
+      - name: Check the signing key
+        if: steps.tag.outputs.skip != 'true'
+        env:
+          KEYSTORE: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE" ]; then
+            echo "::error::SIGNING_KEYSTORE_BASE64 is not set: a build signed with another key can't update the installed app"
+            exit 1
+          fi
+          # Gradle signs local (non-automation) builds with ~/.android/debug.keystore, as on the build PC.
+          mkdir -p ~/.android
+          echo "$KEYSTORE" | base64 -d > ~/.android/debug.keystore
 
       - name: Free disk space
         if: steps.tag.outputs.skip != 'true'
@@ -55,51 +91,53 @@ jobs:
         if: steps.tag.outputs.skip != 'true'
         run: python3 apply_kiwifox.py firefox app.json
 
+      - name: Stamp the build
+        if: steps.tag.outputs.skip != 'true'
+        id: stamp
+        run: |
+          NUMBER=$(date -u +%Y%m%d%H%M)
+          DIR=firefox/mobile/android/fenix/app/src/main/assets/kiwifox
+          mkdir -p "$DIR"
+          printf '{"build": %s, "commit": "%s", "dirty": false, "firefox": "%s"}\n' \
+            "$NUMBER" "$(git rev-parse HEAD)" "${{ steps.tag.outputs.tag }}" > "$DIR/build.json"
+          cat "$DIR/build.json"
+          echo "number=$NUMBER" >> "$GITHUB_OUTPUT"
+
       - name: Build
         if: steps.tag.outputs.skip != 'true'
         working-directory: firefox
         env:
           MOZCONFIG: ${{ github.workspace }}/mozconfig
-          HAS_KEY: ${{ secrets.KEYSTORE_BASE64 != '' }}
         run: |
           ./mach --no-interactive bootstrap --application-choice "GeckoView/Firefox for Android Artifact Mode"
           ./mach build
-          # Without a release keystore secret the APK keeps Gradle's debug signature.
-          if [ "$HAS_KEY" = "true" ]; then
-            ./mach gradle fenix:assembleRelease -PdisableDebugSigning
-          else
-            ./mach gradle fenix:assembleRelease
-          fi
+          ./mach gradle fenix:assembleRelease
 
-      - name: Sign APK
-        if: steps.tag.outputs.skip != 'true'
-        env:
-          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
-          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-        run: |
-          APK=$(find firefox -path '*fenix/app/outputs/apk/release/*arm64-v8a*.apk' | head -1)
-          test -n "$APK" || { echo "arm64 release APK not found"; exit 1; }
-          OUT="kiwifox-${{ steps.tag.outputs.release }}-arm64.apk"
-          if [ -z "$KEYSTORE_BASE64" ]; then
-            echo "::warning::no KEYSTORE_BASE64 secret: publishing the debug-signed APK"
-            cp "$APK" "$OUT"
-            exit 0
-          fi
-          APKSIGNER=$(find ~/.mozbuild -name apksigner -type f | sort -V | tail -1)
-          test -n "$APKSIGNER" || { echo "apksigner not found"; exit 1; }
-          echo "$KEYSTORE_BASE64" | base64 -d > release.jks
-          "$APKSIGNER" sign --ks release.jks --ks-pass env:KEYSTORE_PASSWORD \
-            --ks-key-alias "$KEY_ALIAS" --out "$OUT" "$APK"
-          rm release.jks
-
-      - name: Publish
+      - name: Publish the release
         if: steps.tag.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          THEMES=$(ls theme | sed 's/\.json$//' | tr '\n' ' ')
-          gh release create "${{ steps.tag.outputs.release }}" kiwifox-*.apk \
-            --target "${{ github.sha }}" ${{ steps.tag.outputs.prerelease }} \
-            --title "KiwiFox ${{ steps.tag.outputs.release }}" \
-            --notes "Firefox ${{ steps.tag.outputs.tag }} with KiwiFox runtime themes, built from ${{ github.ref_name }} @ ${{ github.sha }} (bundled: $THEMES)"
+          N=${{ steps.stamp.outputs.number }}
+          mkdir out
+          for f in $(find firefox -path '*fenix/app/outputs/apk/release/*.apk'); do
+            abi=$(basename "$f" | sed -E 's/^fenix-(.*)-release\.apk$/\1/')
+            cp "$f" "out/kiwifox-$N-$abi.apk"
+          done
+          ls out/*.apk >/dev/null || { echo "no release APKs were built"; exit 1; }
+          PREV=$(git tag --list 'build-*' --sort=-version:refname | head -1)
+          {
+            echo "KiwiFox build $N on Firefox ${{ steps.tag.outputs.version }} (${{ steps.tag.outputs.tag }}), from $(git rev-parse --short HEAD), built by GitHub Actions."
+            echo
+            if [ -n "$PREV" ]; then echo "KiwiFox changes since $PREV:"; git log --format='- %s' "$PREV..HEAD"; fi
+          } > out/notes.md
+          gh release create "build-$N" out/kiwifox-*.apk --target "$(git rev-parse HEAD)" \
+            --title "KiwiFox build $N (Firefox ${{ steps.tag.outputs.version }})" --notes-file out/notes.md --latest
+
+      - name: Report a failed build
+        if: failure() && steps.tag.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue create --title "KiwiFox build failed on Firefox ${{ steps.tag.outputs.version }}" \
+            --body "The build of KiwiFox on ${{ steps.tag.outputs.tag }} failed: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}. A Firefox change may have broken a patch anchor (tools/check_apply_upstream.sh ${{ steps.tag.outputs.tag }} reproduces that locally)."

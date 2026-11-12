@@ -40,6 +40,8 @@ PREV=$(git tag --list 'build-*' --sort=-version:refname | head -1 || true)
   fi
 } > "$OUT/notes.md"
 
+# The title names the Firefox version: the weekly GitHub build skips Firefox versions already released.
+FIREFOX=$(tr -d '\r\n' < "$TREE/browser/config/version_display.txt")
 gh release create "$TAG" "$OUT"/kiwifox-*.apk -R "$REPO" --target "$COMMIT" \
-  --title "KiwiFox build $NUMBER" --notes-file "$OUT/notes.md" --latest
+  --title "KiwiFox build $NUMBER (Firefox $FIREFOX)" --notes-file "$OUT/notes.md" --latest
 echo "released $TAG: https://github.com/$REPO/releases/tag/$TAG"
