@@ -129,7 +129,7 @@ internal object KiwiStatusBar {
         override fun getOpacity() = PixelFormat.OPAQUE
     }
 
-    /** The navigation bar: a color, or the bottom of the homepage wallpaper (blurred artwork). */
+    /** The navigation bar: a color, or the bottom of the homepage wallpaper. */
     @SuppressLint("ViewConstructor")
     private class NavigationBarView(context: Context) : View(context) {
         var color: Int = 0
@@ -152,7 +152,7 @@ internal object KiwiStatusBar {
             val headerPx = statusBarPx + with(density) { KiwiHeader.TOOLBAR_HEIGHT.toPx() }
             val windowPx = (rootView?.height ?: height).toFloat()
             scope.draw(density, LayoutDirection.Ltr, ComposeCanvas(canvas), Size(width.toFloat(), height.toFloat())) {
-                drawKiwiWallpaper(w, location[1].toFloat(), headerPx, windowPx, sharp = false)
+                drawKiwiWallpaper(w, location[1].toFloat(), headerPx, windowPx)
             }
         }
     }

@@ -69,8 +69,8 @@ object KiwiSurfaces {
 
     /**
      * Paints the new tab page background behind the homepage (under any user wallpaper). For image
-     * themes it is the header's artwork: continuing below the toolbar where the image reaches, over a
-     * blurred copy of it that fills the rest (Style: "Artwork behind the homepage").
+     * themes it is the theme's image fitted to the screen width below the toolbar, tiled down when it
+     * repeats, else fading into a soft fill in its colors (Style: "Artwork behind the homepage").
      */
     @Composable
     fun HomeBackground() {
