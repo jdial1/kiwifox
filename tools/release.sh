@@ -11,7 +11,7 @@ STAMP=$TREE/mobile/android/fenix/app/src/main/assets/kiwifox/build.json
 APKS=$TREE/objdir-kiwifox/gradle/build/mobile/android/fenix/app/outputs/apk/release
 REPO=jdial1/kiwifox
 
-read -r NUMBER COMMIT DIRTY < <(python -c "import json,sys; j=json.load(open(sys.argv[1])); print(j['build'], j['commit'], str(j['dirty']).lower())" "$STAMP")
+read -r NUMBER COMMIT DIRTY < <(python -c "import json,sys; j=json.load(open(sys.argv[1])); print(j['build'], j['commit'], str(j['dirty']).lower())" "$STAMP" | tr -d '\r')
 [ "$DIRTY" = "false" ] || { echo "build $NUMBER was made with uncommitted changes: commit, rebuild, then release"; exit 1; }
 for f in "$APKS"/fenix-*-release.apk; do
   [ "$f" -nt "$STAMP" ] || { echo "$f is older than the build stamp: run build.sh first"; exit 1; }
