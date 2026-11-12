@@ -27,14 +27,10 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.Canvas
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.asAndroidBitmap
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
@@ -44,9 +40,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
-import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -90,9 +84,9 @@ data class KiwiHeader(
     /** True when the header has artwork (an image), not just colors and gradients. */
     val hasPicture: Boolean get() = layers.any { it !is KiwiHeaderLayer.Gradient }
 
-    /** The wallpaper's soft fill, rendered once (see [ambient]). */
+    /** The wallpaper's fill color, computed once (see [wallpaperFill]). */
     @Volatile
-    internal var ambientCache: Pair<String, ImageBitmap?>? = null
+    internal var ambientCache: Pair<String, Color>? = null
 
     companion object {
         /** Desktop CSS px to Android dp for header artwork. */
@@ -256,124 +250,108 @@ private fun KiwiHeaderLayer.pixelSize(): Pair<Int, Int>? = when (this) {
 fun KiwiHeader.wallpaperLayer(): KiwiHeaderLayer? =
     layers.filter { it.pixelSize() != null }.maxByOrNull { l -> l.pixelSize()!!.let { it.first.toLong() * it.second } }
 
+/** Image pixels per CSS px of an image layer. */
+private val KiwiHeaderLayer.imagePxPerCss: Float
+    get() = when (this) {
+        is KiwiHeaderLayer.Image -> pxPerCss
+        is KiwiHeaderLayer.Animated -> pxPerCss
+        is KiwiHeaderLayer.Gradient -> 1f
+    }
+
+/** The layer with any downward repeat removed (`repeat` keeps repeating sideways). */
+private fun KiwiHeaderLayer.onceDown(): KiwiHeaderLayer {
+    val t = when (tiling) {
+        "repeat" -> "repeat-x"
+        "repeat-y" -> "no-repeat"
+        else -> return this
+    }
+    return when (this) {
+        is KiwiHeaderLayer.Image -> copy(tiling = t)
+        is KiwiHeaderLayer.Animated -> copy(tiling = t)
+        is KiwiHeaderLayer.Gradient -> copy(tiling = t)
+    }
+}
+
+/** A layer's natural height in CSS px ([boxH] for gradients without a height). */
+private fun KiwiHeaderLayer.cssHeight(boxH: Float): Float = when (this) {
+    is KiwiHeaderLayer.Gradient -> height ?: boxH
+    else -> height ?: pixelSize()?.let { (w, h) -> width?.let { h * it / w } ?: (h / imagePxPerCss) } ?: 0f
+}
+
 /**
- * The wallpaper image reduced to a few dozen pixels: enlarged with bilinear filtering it is a soft
- * fill in the image's own colors, for the screen below an image that doesn't repeat (and the
- * navigation bar). Rendered once per header.
+ * The color the wallpaper continues in below its image: the average of the main image's bottom edge
+ * (so the image fades into its own color), or [KiwiHeader.frame]. Computed once per header.
  */
-fun KiwiHeader.ambient(): ImageBitmap? {
+fun KiwiHeader.wallpaperFill(): Color {
     ambientCache?.let { return it.second }
-    val layer = wallpaperLayer()
-    val (iw, ih) = layer?.pixelSize() ?: (0 to 0)
-    val bitmap = if (layer == null) {
-        null
-    } else {
+    val layer = wallpaperLayer() as? KiwiHeaderLayer.Image
+    val color = layer?.let {
         runCatching {
-            val scale = AMBIENT_WIDTH / iw
-            val small = ImageBitmap(AMBIENT_WIDTH.toInt(), (ih * scale).roundToInt().coerceAtLeast(1))
-            CanvasDrawScope().draw(
-                Density(1f),
-                LayoutDirection.Ltr,
-                Canvas(small),
-                Size(small.width.toFloat(), small.height.toFloat()),
-            ) {
-                drawFitted(layer, 0f, small.width.toFloat(), small.height.toFloat(), FilterQuality.Medium)
+            var bitmap = it.bitmap.asAndroidBitmap()
+            if (bitmap.config == android.graphics.Bitmap.Config.HARDWARE) {
+                bitmap = bitmap.copy(android.graphics.Bitmap.Config.ARGB_8888, false)
             }
-            small
+            val rows = (bitmap.height / FILL_EDGE_FRACTION).coerceAtLeast(1)
+            val edge = android.graphics.Bitmap.createBitmap(bitmap, 0, bitmap.height - rows, bitmap.width, rows)
+            val pixel = android.graphics.Bitmap.createScaledBitmap(edge, 1, 1, true).getPixel(0, 0)
+            Color(pixel).copy(alpha = 1f).compositeOverFrame(frame)
         }.getOrNull()
-    }
-    ambientCache = "" to bitmap
-    return bitmap
+    } ?: frame
+    ambientCache = "" to color
+    return color
 }
 
-private const val AMBIENT_WIDTH = 32f
-private const val WALLPAPER_FADE_DP = 48f
+private fun Color.compositeOverFrame(frame: Color): Color =
+    if (alpha >= 1f) this else androidx.compose.ui.graphics.lerp(frame, copy(alpha = 1f), alpha)
 
-/** [layer] drawn into the rectangle from ([0], [top]) of [width] x [height]. */
-private fun DrawScope.drawFitted(layer: KiwiHeaderLayer, top: Float, width: Float, height: Float, quality: FilterQuality) {
-    val (iw, ih) = layer.pixelSize() ?: return
-    when (layer) {
-        is KiwiHeaderLayer.Image -> drawImage(
-            image = layer.bitmap,
-            srcOffset = IntOffset.Zero,
-            srcSize = IntSize(iw, ih),
-            dstOffset = IntOffset(0, top.roundToInt()),
-            dstSize = IntSize(width.roundToInt(), height.roundToInt()),
-            filterQuality = quality,
-        )
-        is KiwiHeaderLayer.Animated -> drawIntoCanvas { canvas ->
-            layer.drawable.setBounds(0, top.roundToInt(), width.roundToInt(), (top + height).roundToInt())
-            layer.drawable.draw(canvas.nativeCanvas)
-        }
-        is KiwiHeaderLayer.Gradient -> Unit
-    }
-}
+private const val FILL_EDGE_FRACTION = 12
+private const val WALLPAPER_FADE_DP = 40f
 
 /**
- * The homepage wallpaper for a header with [KiwiHeader.wallpaper]: the theme's main image scaled to the
- * screen width, starting below the toolbar ([headerPx] from the top of the screen). An image that
- * repeats on desktop tiles down the page; otherwise it fades into a soft fill in its own colors that
- * covers the rest of the screen. This scope shows the screen from [originPx] (its distance from the
- * top) downwards, so the homepage and the navigation bar line up; with [image] false only the fill is
- * drawn (the navigation bar). Draws nothing for headers without an image.
+ * The homepage wallpaper for a header with [KiwiHeader.wallpaper]: the theme's header artwork (all its
+ * layers, in desktop's layout across the screen width) starting below the toolbar ([headerPx] from the
+ * top of the screen). It is drawn at most one screen pixel per image pixel, so it stays sharp, and
+ * shrunk to fit the screen width when its main image is wider. It is shown once (never tiled down the
+ * page) and fades into [wallpaperFill]. This scope shows the screen from
+ * [originPx] (its distance from the top) downwards, so the homepage and the navigation bar line up.
+ * Draws nothing for headers without an image.
  */
-@Suppress("LongParameterList")
-fun DrawScope.drawKiwiWallpaper(
-    header: KiwiHeader,
-    originPx: Float,
-    headerPx: Float,
-    windowPx: Float,
-    image: Boolean = true,
-) {
-    val layer = header.wallpaperLayer() ?: return
+fun DrawScope.drawKiwiWallpaper(header: KiwiHeader, originPx: Float, headerPx: Float, windowPx: Float) {
+    val main = header.wallpaperLayer() ?: return
     if (header.animated && KiwiHeaderTicker.tick < 0) return
-    val (iw, ih) = layer.pixelSize() ?: return
-    val h = ih * size.width / iw
+    val images = header.layers.filter { it.pixelSize() != null }
+    // Screen px per CSS px: never more than any image has pixels (no enlarging), at most the header's scale.
+    var scale = minOf(density * KiwiHeader.DP_PER_CSS_PX, images.minOf { it.imagePxPerCss })
+    val mainCssWidth = main.width ?: (main.pixelSize()!!.first / main.imagePxPerCss)
+    if (mainCssWidth * scale > size.width) scale = size.width / mainCssWidth
+    val boxW = size.width / scale
+    // Shown once: tiling a picture down a phone screen repeats it in visible bands (user, 2026-11-11).
+    val bandCss = images.maxOf { it.cssHeight(0f) }
     val top = headerPx - originPx
-    val repeatY = layer.tiling == "repeat" || layer.tiling == "repeat-y"
-    drawRect(header.frame)
-    if (!(image && repeatY)) {
-        header.ambient()?.let { ambient ->
-            // Cover the screen, centered.
-            val scale = maxOf(size.width / ambient.width, windowPx / ambient.height)
-            val w = ambient.width * scale
-            val ah = ambient.height * scale
-            drawImage(
-                image = ambient,
-                srcOffset = IntOffset.Zero,
-                srcSize = IntSize(ambient.width, ambient.height),
-                dstOffset = IntOffset(((size.width - w) / 2).roundToInt(), ((windowPx - ah) / 2 - originPx).roundToInt()),
-                dstSize = IntSize(w.roundToInt(), ah.roundToInt()),
-                filterQuality = FilterQuality.Low,
-            )
-        }
-    }
-    if (!image || h < 1f) return
-    if (repeatY) {
-        // Tile up to the top of this scope and down to its bottom.
-        var y = top - ceil(top / h) * h
-        while (y < size.height) {
-            drawFitted(layer, y, size.width, h, FilterQuality.Medium)
-            y += h
-        }
-        return
-    }
-    val bottom = top + h
-    if (bottom <= 0f) return
-    val fade = minOf(h / 3, WALLPAPER_FADE_DP * density)
-    // The image, faded out over its last [fade] px by masking it with a vertical gradient.
+    val fill = header.wallpaperFill()
+    drawRect(fill)
+    val bandPx = bandCss * scale
+    val bottom = top + bandPx
+    if (bottom <= 0f || top >= size.height) return
     drawContext.canvas.saveLayer(Rect(0f, top, size.width, bottom), Paint())
-    drawFitted(layer, top, size.width, h, FilterQuality.Medium)
+    drawRect(header.frame, topLeft = Offset(0f, top), size = Size(size.width, bottom - top))
+    translate(top = top) {
+        for (layer in header.layers.asReversed()) {
+            drawLayer(layer.onceDown(), boxW, bandCss, scale)
+        }
+    }
+    // Fade the artwork's bottom edge into the fill.
+    val fade = minOf(bandPx / 3, WALLPAPER_FADE_DP * density)
     drawRect(
         brush = Brush.verticalGradient(
             0f to Color.Black,
-            ((h - fade) / h).coerceIn(0f, 1f) to Color.Black,
+            ((bandPx - fade) / bandPx).coerceIn(0f, 1f) to Color.Black,
             1f to Color.Transparent,
             startY = top,
             endY = bottom,
         ),
         topLeft = Offset(0f, top),
-        size = Size(size.width, h),
+        size = Size(size.width, bandPx),
         blendMode = BlendMode.DstIn,
     )
     drawContext.canvas.restore()
