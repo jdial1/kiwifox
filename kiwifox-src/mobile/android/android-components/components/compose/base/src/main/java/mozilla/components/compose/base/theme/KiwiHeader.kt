@@ -305,6 +305,55 @@ private fun Color.compositeOverFrame(frame: Color): Color =
     if (alpha >= 1f) this else androidx.compose.ui.graphics.lerp(frame, copy(alpha = 1f), alpha)
 
 private const val FILL_EDGE_FRACTION = 12
+
+/** Most screen px per image px for a cover wallpaper; beyond it the image would look stretched. */
+private const val MAX_COVER_ENLARGE = 2.25f
+
+/**
+ * Desktop-sized images (wallpaper photos, not header strips): [main] scaled to cover the screen below the
+ * toolbar (from [headerPx] to the bottom, the navigation bar included), keeping its proportions, placed by
+ * its alignment keywords (desktop themes put their subject where the alignment points). Returns false,
+ * drawing nothing, when that would enlarge the image more than [MAX_COVER_ENLARGE] times.
+ */
+private fun DrawScope.drawWallpaperCover(
+    header: KiwiHeader,
+    main: KiwiHeaderLayer,
+    originPx: Float,
+    headerPx: Float,
+    windowPx: Float,
+): Boolean {
+    val (iw, ih) = main.pixelSize() ?: return false
+    val areaH = (windowPx - headerPx).coerceAtLeast(1f)
+    val scale = maxOf(size.width / iw, areaH / ih)
+    if (scale > MAX_COVER_ENLARGE) return false
+    val w = iw * scale
+    val h = ih * scale
+    val (horizontal, vertical) = positionKeywords(main.alignment)
+    fun along(keyword: String, low: String, high: String) = when (keyword) {
+        low -> 0f
+        high -> 1f
+        else -> 0.5f
+    }
+    val left = (size.width - w) * along(horizontal, "left", "right")
+    val top = headerPx - originPx + (areaH - h) * along(vertical, "top", "bottom")
+    drawRect(header.frame)
+    when (main) {
+        is KiwiHeaderLayer.Image -> drawImage(
+            image = main.bitmap,
+            srcOffset = IntOffset.Zero,
+            srcSize = IntSize(iw, ih),
+            dstOffset = IntOffset(left.roundToInt(), top.roundToInt()),
+            dstSize = IntSize(w.roundToInt(), h.roundToInt()),
+            filterQuality = androidx.compose.ui.graphics.FilterQuality.High,
+        )
+        is KiwiHeaderLayer.Animated -> drawIntoCanvas { canvas ->
+            main.drawable.setBounds(left.roundToInt(), top.roundToInt(), (left + w).roundToInt(), (top + h).roundToInt())
+            main.drawable.draw(canvas.nativeCanvas)
+        }
+        is KiwiHeaderLayer.Gradient -> return false
+    }
+    return true
+}
 private const val WALLPAPER_FADE_DP = 40f
 
 /**
@@ -319,6 +368,7 @@ private const val WALLPAPER_FADE_DP = 40f
 fun DrawScope.drawKiwiWallpaper(header: KiwiHeader, originPx: Float, headerPx: Float, windowPx: Float) {
     val main = header.wallpaperLayer() ?: return
     if (header.animated && KiwiHeaderTicker.tick < 0) return
+    if (drawWallpaperCover(header, main, originPx, headerPx, windowPx)) return
     val images = header.layers.filter { it.pixelSize() != null }
     // Screen px per CSS px: never more than any image has pixels (no enlarging), at most the header's scale.
     var scale = minOf(density * KiwiHeader.DP_PER_CSS_PX, images.minOf { it.imagePxPerCss })
