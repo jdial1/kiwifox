@@ -254,7 +254,7 @@ object KiwiThemeManager {
         ensureLoaded(activity)
         runCatching { upgradeOutdated(activity, activity.components.core.client) }
         KiwiSettingsTint.register(activity)
-        if (activity is org.mozilla.fenix.HomeActivity) runCatching { KiwiUpdater.maybeCheck(activity) }
+        if (activity is org.mozilla.fenix.HomeActivity) runCatching { KiwiUpdater.attach(activity) }
         val dark = (activity.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
             Configuration.UI_MODE_NIGHT_YES
         val roles = current?.let { if (dark) it.dark else it.light }

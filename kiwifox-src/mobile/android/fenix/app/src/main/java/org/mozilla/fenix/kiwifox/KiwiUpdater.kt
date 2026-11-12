@@ -7,6 +7,9 @@ package org.mozilla.fenix.kiwifox
 import android.app.Activity
 import android.app.AlertDialog
 import android.app.DownloadManager
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
@@ -17,7 +20,15 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.widget.Toast
+import androidx.activity.ComponentActivity
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.util.Consumer
 import org.json.JSONObject
+import java.util.WeakHashMap
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -29,7 +40,9 @@ import java.net.URL
  * package installer opens on it. Releases are signed with the same key as the installed app, so they
  * install as updates and keep the profile.
  *
- * Checked when the browser opens, at most every [CHECK_INTERVAL_MS], and on demand from the Themes screen.
+ * Checked when the browser opens, at most every [CHECK_INTERVAL_MS], and on demand (Settings, Themes screen).
+ * A newer build is announced like a browser update: a notification, an "Update KiwiFox" item at the top of
+ * the main menu and a "KiwiFox update" entry at the top of Settings, all starting the same download.
  */
 internal object KiwiUpdater {
     const val REPOSITORY = "jdial1/kiwifox"
@@ -42,15 +55,93 @@ internal object KiwiUpdater {
     private const val KEY_SKIPPED = "skipped_build"
     private const val TAG_PREFIX = "build-"
     private const val NOTES_LINES = 12
+    private const val KEY_AVAILABLE = "available"
+    private const val CHANNEL = "kiwifox_updates"
+    private const val NOTIFICATION_ID = 0x4B1F
+    const val ACTION_UPDATE = "org.mozilla.fenix.kiwifox.ACTION_UPDATE"
+    const val SETTINGS_KEY = "kiwifox_update"
 
     /** This app's build: number (UTC yyyyMMddHHmm, 0 = unknown) and commit. */
     data class BuildInfo(val number: Long, val commit: String)
 
     /** A published release: its build number, the APK for this device, the notes and page. */
-    data class Release(val number: Long, val apkUrl: String, val apkName: String, val notes: String, val page: String)
+    data class Release(
+        val number: Long,
+        val apkUrl: String,
+        val apkName: String,
+        val notes: String,
+        val page: String,
+        val firefox: String = "",
+    ) {
+        fun toJson(): String = JSONObject()
+            .put("number", number).put("apkUrl", apkUrl).put("apkName", apkName)
+            .put("notes", notes).put("page", page).put("firefox", firefox).toString()
+
+        /** "Build 202611200723 · Firefox 160.0" */
+        val label: String get() = "Build $number" + if (firefox.isEmpty()) "" else " · Firefox $firefox"
+
+        companion object {
+            fun fromJson(text: String): Release? = runCatching {
+                val j = JSONObject(text)
+                Release(
+                    j.getLong("number"), j.getString("apkUrl"), j.getString("apkName"),
+                    j.optString("notes"), j.optString("page"), j.optString("firefox"),
+                )
+            }.getOrNull()
+        }
+    }
 
     @Volatile
     private var checking = false
+
+    /** The newer release waiting to be installed, or null; Compose UI (the main menu) observes it. */
+    var available: Release? by mutableStateOf(null)
+        private set
+
+    private var restored = false
+    private val attached = WeakHashMap<Activity, Unit>()
+
+    /**
+     * Called for every browser activity on resume: restores a known update, starts the update when the
+     * activity was opened from the update notification, and checks for a new build when due.
+     */
+    fun attach(activity: Activity) {
+        restore(activity)
+        if (!attached.containsKey(activity)) {
+            attached[activity] = Unit
+            if (activity.intent?.action == ACTION_UPDATE) {
+                activity.intent.action = null
+                startUpdate(activity)
+            }
+            (activity as? ComponentActivity)?.addOnNewIntentListener(
+                Consumer { intent -> if (intent.action == ACTION_UPDATE) startUpdate(activity) },
+            )
+        }
+        maybeCheck(activity)
+    }
+
+    private fun restore(context: Context) {
+        if (restored) return
+        restored = true
+        val saved = prefs(context).getString(KEY_AVAILABLE, null)?.let(Release::fromJson)
+        available = saved?.takeIf { it.number > current(context).number }
+    }
+
+    private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+    private fun remember(context: Context, release: Release?) {
+        available = release
+        prefs(context).edit().apply {
+            if (release == null) remove(KEY_AVAILABLE) else putString(KEY_AVAILABLE, release.toJson())
+        }.apply()
+        if (release == null) NotificationManagerCompat.from(context).cancel(NOTIFICATION_ID)
+    }
+
+    /** Installs the known update, or looks for one (reporting the result) when none is known. */
+    fun startUpdate(activity: Activity) {
+        val release = available
+        if (release == null) check(activity, manual = true) else download(activity, release)
+    }
 
     fun current(context: Context): BuildInfo = runCatching {
         val json = context.assets.open("kiwifox/build.json").bufferedReader().use { JSONObject(it.readText()) }
@@ -85,14 +176,24 @@ internal object KiwiUpdater {
                 if (activity.isFinishing || activity.isDestroyed) return@post
                 val release = result.getOrNull()
                 val local = current(app)
-                val skipped = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getLong(KEY_SKIPPED, 0L)
+                val skipped = prefs(app).getLong(KEY_SKIPPED, 0L)
                 when {
                     release == null -> if (manual) {
                         toast(activity, "Couldn't check for updates: ${result.exceptionOrNull()?.message ?: "no release for this device"}")
                     }
-                    release.number <= local.number -> if (manual) toast(activity, "KiwiFox is up to date (build ${local.number})")
-                    !manual && release.number == skipped -> Unit
-                    else -> offer(activity, release, local)
+                    release.number <= local.number -> {
+                        remember(app, null)
+                        if (manual) toast(activity, "KiwiFox is up to date (build ${local.number})")
+                    }
+                    else -> {
+                        val announce = available?.number != release.number
+                        remember(app, release)
+                        if (manual) {
+                            offer(activity, release, local)
+                        } else if (announce && release.number != skipped) {
+                            notify(app, release, local)
+                        }
+                    }
                 }
             }
         }, "KiwiFox update check").start()
@@ -109,6 +210,8 @@ internal object KiwiUpdater {
             if (connection.responseCode != HttpURLConnection.HTTP_OK) error("GitHub answered ${connection.responseCode}")
             val json = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
             val number = json.optString("tag_name").removePrefix(TAG_PREFIX).toLongOrNull() ?: return null
+            // Release titles end in "(Firefox <version>)" (tools/release.sh, the GitHub workflow).
+            val firefox = Regex("\\(Firefox ([0-9.]+)\\)").find(json.optString("name"))?.groupValues?.get(1).orEmpty()
             val assets = json.optJSONArray("assets") ?: return null
             val apks = (0 until assets.length()).map { assets.getJSONObject(it) }
                 .filter { it.optString("name").endsWith(".apk") }
@@ -122,6 +225,7 @@ internal object KiwiUpdater {
                 apkName = apk.getString("name"),
                 notes = json.optString("body").lines().filter { it.isNotBlank() }.take(NOTES_LINES).joinToString("\n"),
                 page = json.optString("html_url"),
+                firefox = firefox,
             )
         } finally {
             connection.disconnect()
@@ -132,13 +236,43 @@ internal object KiwiUpdater {
         val from = if (local.number == 0L) "a local build" else "build ${local.number}"
         AlertDialog.Builder(activity)
             .setTitle("KiwiFox update available")
-            .setMessage("Build ${release.number} is available (you have $from).\n\n${release.notes}")
+            .setMessage("${release.label} is available (you have $from).\n\n${release.notes}")
             .setPositiveButton("Update") { _, _ -> download(activity, release) }
             .setNeutralButton("Skip this build") { _, _ ->
                 activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putLong(KEY_SKIPPED, release.number).apply()
             }
             .setNegativeButton("Later", null)
             .show()
+    }
+
+    /** A notification like an app store's update notice; tapping it (or Update) starts the update. */
+    private fun notify(context: Context, release: Release, local: BuildInfo) {
+        val manager = NotificationManagerCompat.from(context)
+        if (!manager.areNotificationsEnabled()) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            context.getSystemService(NotificationManager::class.java)?.createNotificationChannel(
+                NotificationChannel(CHANNEL, "KiwiFox updates", NotificationManager.IMPORTANCE_DEFAULT),
+            )
+        }
+        val open = PendingIntent.getActivity(
+            context,
+            0,
+            Intent(context, org.mozilla.fenix.HomeActivity::class.java)
+                .setAction(ACTION_UPDATE)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val from = if (local.number == 0L) "a local build" else "build ${local.number}"
+        val notification = NotificationCompat.Builder(context, CHANNEL)
+            .setSmallIcon(org.mozilla.fenix.R.drawable.ic_status_logo)
+            .setContentTitle("KiwiFox update available")
+            .setContentText("${release.label} (you have $from)")
+            .setStyle(NotificationCompat.BigTextStyle().bigText("${release.label} (you have $from)\n${release.notes}"))
+            .setContentIntent(open)
+            .addAction(0, "Update", open)
+            .setAutoCancel(true)
+            .build()
+        runCatching { manager.notify(NOTIFICATION_ID, notification) }
     }
 
     private fun download(activity: Activity, release: Release) {

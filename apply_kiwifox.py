@@ -894,7 +894,70 @@ def apply_style_patches(root: Path) -> None:
     patch(root, f"{FENIX}/res/values/strings.xml", patch_amo_catalog_strings)
 
 
+def patch_main_menu_update(text: str) -> str:
+    """"Update KiwiFox" at the top of the main menu while a newer build is waiting (KiwiUpdateMenuItem)."""
+    return insert_before(
+        text,
+        "        if (accessPoint == MenuAccessPoint.Home && showBanner) {\n",
+        "        org.mozilla.fenix.kiwifox.KiwiUpdateMenuItem()\n\n",
+        "MainMenu banner",
+    )
+
+
+def patch_settings_update(text: str) -> str:
+    """A "KiwiFox update" entry at the top of Settings, filled in and wired up by KiwiUpdateUi.kt."""
+    anchor = 'android:key="@string/pref_key_sync_debug"'
+    if text.count(anchor) != 1:
+        raise AnchorMissing(f"preferences.xml: expected 1 occurrence of {anchor!r}, found {text.count(anchor)}")
+    end = text.index("/>\n", text.index(anchor)) + len("/>\n")
+    entry = (
+        "\n    <!-- KiwiFox: installed build and waiting update (KiwiUpdateUi.bindUpdatePreference) -->\n"
+        "    <androidx.preference.Preference\n"
+        '        app:iconSpaceReserved="false"\n'
+        '        android:key="kiwifox_update"\n'
+        '        android:title="KiwiFox updates" />\n'
+    )
+    return text[:end] + entry + text[end:]
+
+
+def patch_version_kiwifox(text: str) -> str:
+    """Name the KiwiFox build in the app's version (Android's app info, Firefox's About screen):
+    versionName "<Firefox version> · KiwiFox <build>", and a versionCode that grows with the build number
+    (2,100,000,000 + minutes since 2026-11-01 UTC; above Fennec-style codes), so every newer KiwiFox build,
+    local or from GitHub, installs as an update. The build number is assets/kiwifox/build.json (build.sh, CI)."""
+    return insert_after(
+        text,
+        "                output.versionCode.set(versionCodeOverride)\n",
+        "                // KiwiFox: the build stamp written by build.sh / the GitHub workflow.\n"
+        '                def kiwiStamp = file("src/main/assets/kiwifox/build.json")\n'
+        "                if (kiwiStamp.exists()) {\n"
+        "                    def kiwiBuild = new groovy.json.JsonSlurper().parse(kiwiStamp).build.toString()\n"
+        "                    def kiwiTime = java.time.LocalDateTime.parse(kiwiBuild, java.time.format.DateTimeFormatter.ofPattern(\"yyyyMMddHHmm\"))\n"
+        "                    def kiwiMinutes = java.time.Duration.between(java.time.LocalDateTime.of(2026, 11, 1, 0, 0), kiwiTime).toMinutes()\n"
+        "                    output.versionCode.set((2100000000L + kiwiMinutes) as int)\n"
+        '                    output.versionName.set("${versionName} · KiwiFox ${kiwiBuild}".toString())\n'
+        "                }\n",
+        "build.gradle versionCode override",
+    )
+
+
+def apply_update_patches(root: Path) -> None:
+    """KiwiFox updates surfaced like browser updates. Separate so an applied tree can take just these
+    (`apply_kiwifox.py --update-only <tree>`) after copy_sources."""
+    patch(root, f"{FENIX}/java/org/mozilla/fenix/components/menu/compose/MainMenu.kt", patch_main_menu_update)
+    patch(root, f"{FENIX}/res/xml/preferences.xml", patch_settings_update)
+    patch(root, "mobile/android/fenix/app/build.gradle", patch_version_kiwifox)
+
+
 def main() -> None:
+    if len(sys.argv) == 3 and sys.argv[1] == "--update-only":
+        root = Path(sys.argv[2]).resolve()
+        try:
+            copy_sources(root)
+            apply_update_patches(root)
+        except AnchorMissing as e:
+            sys.exit(f"APPLY FAILED: {e}")
+        return
     if len(sys.argv) == 3 and sys.argv[1] == "--parity-only":
         root = Path(sys.argv[2]).resolve()
         try:
@@ -935,6 +998,7 @@ def main() -> None:
         patch(root, "mobile/android/fenix/app/build.gradle", lambda t: patch_app_identity(t, app))
         apply_style_patches(root)
         apply_parity_patches(root)
+        apply_update_patches(root)
     except AnchorMissing as e:
         sys.exit(f"APPLY FAILED: {e}")
 
