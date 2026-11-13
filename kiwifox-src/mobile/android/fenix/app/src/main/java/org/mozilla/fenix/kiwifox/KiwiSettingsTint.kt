@@ -67,6 +67,7 @@ internal object KiwiSettingsTint : FragmentManager.FragmentLifecycleCallbacks() 
     private fun tint(f: Fragment) {
         if (f !is PreferenceFragmentCompat) return
         runCatching { bindUpdatePreference(f) }
+        runCatching { bindHistoryImportPreference(f) }
         val root = f.view ?: return
         val palette = palette(f.requireActivity()) ?: return
         root.setBackgroundColor(palette.background)

@@ -316,6 +316,26 @@ copies of every patched upstream file and checks the result equals the build tre
 | Mozilla Light/Dark | n/a | they define no colors, only `color_scheme`; pick the mode in Firefox settings |
 | r/FirefoxCSS `userChrome.css` themes (GitHub repo, `.css`, or a zipped `chrome` folder) | partly | colors from literal `:root` values (see below), layout from rules and `user.js` (see Layout) |
 
+## Moving in from Chrome (history, passwords, bookmarks)
+
+Google gives no other browser access to Chrome sync, so nothing here signs in to Google; data comes over
+as files.
+
+| Data | Where | File |
+|---|---|---|
+| History | Settings > Import browsing history (KiwiFox) | Google Takeout's Chrome export (the `.zip`, or `History.json` / `BrowserHistory.json` inside), or the `History` SQLite file from a desktop Chrome / Edge / Brave / Opera / Vivaldi profile folder |
+| Passwords | Settings > Passwords > menu > Import from file (Firefox's own, switched on by `apply_kiwifox.py`) | `.csv` with `url`, `username`, `password` columns, as Chrome exports it |
+| Bookmarks | Bookmarks > menu > Import from file (same) | bookmarks `.html` |
+
+History import (`ChromeHistory.kt` readers, `KiwiHistoryImporter.kt`, `KiwiHistoryImportFragment.kt`):
+files are read as a stream, only dated http(s) page loads are kept (no frames, `chrome://` pages or
+undated rows), and visits are written with their original dates through `kiwiImportVisits`
+(`KiwiHistoryImport.kt`, added to android-components' `browser-storage-sync` because the places
+connection that accepts a date is internal to that module). A visit already stored with the same URL and
+millisecond is skipped, so a file can be imported twice. Visits are local ones: Firefox sync uploads them
+with a Mozilla account. `apply_kiwifox.py --import-only <tree>` adds just this to an applied tree;
+`run-mach.cmd /f/kiwifox/import-test.sh` runs its tests and the release compile.
+
 ## Desktop rules mirrored (Firefox 159 source)
 
 | Rule | Desktop source |

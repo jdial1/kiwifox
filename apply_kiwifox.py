@@ -949,7 +949,53 @@ def apply_update_patches(root: Path) -> None:
     patch(root, "mobile/android/fenix/app/build.gradle", patch_version_kiwifox)
 
 
+def patch_settings_history_import(text: str) -> str:
+    """An "Import browsing history" entry in Settings > More, wired up by KiwiHistoryImportFragment.kt
+    (bindHistoryImportPreference). Sits after Firefox's own hidden "Import bookmarks" entry."""
+    anchor = 'android:key="@string/pref_key_import_bookmarks"'
+    if text.count(anchor) != 1:
+        raise AnchorMissing(f"preferences.xml: expected 1 occurrence of {anchor!r}, found {text.count(anchor)}")
+    end = text.index("/>\n", text.index(anchor)) + len("/>\n")
+    entry = (
+        "        <!-- KiwiFox: Chrome / Chromium history file import (KiwiHistoryImportFragment) -->\n"
+        "        <androidx.preference.Preference\n"
+        '            android:key="kiwifox_history_import"\n'
+        '            app:iconSpaceReserved="false"\n'
+        '            android:title="Import browsing history"\n'
+        '            android:summary="From Chrome (Google Takeout) or the History file of a computer browser" />\n'
+    )
+    return text[:end] + entry + text[end:]
+
+
+def patch_nav_graph_history_import(text: str) -> str:
+    return insert_before(
+        text,
+        '    <fragment\n        android:id="@+id/kiwiThemesFragment"\n',
+        "    <fragment\n"
+        '        android:id="@+id/kiwiHistoryImportFragment"\n'
+        '        android:name="org.mozilla.fenix.kiwifox.KiwiHistoryImportFragment"\n'
+        '        android:label="Import browsing history" />\n',
+        "nav_graph.xml history import",
+    )
+
+
+def apply_import_patches(root: Path) -> None:
+    """Browsing-history import from other browsers' files. Separate so an applied tree can take just these
+    (`apply_kiwifox.py --import-only <tree>`) after copy_sources. Needs patch_nav_graph and
+    patch_settings_groups to have run."""
+    patch(root, f"{FENIX}/res/xml/preferences.xml", patch_settings_history_import)
+    patch(root, f"{FENIX}/res/navigation/nav_graph.xml", patch_nav_graph_history_import)
+
+
 def main() -> None:
+    if len(sys.argv) == 3 and sys.argv[1] == "--import-only":
+        root = Path(sys.argv[2]).resolve()
+        try:
+            copy_sources(root)
+            apply_import_patches(root)
+        except AnchorMissing as e:
+            sys.exit(f"APPLY FAILED: {e}")
+        return
     if len(sys.argv) == 3 and sys.argv[1] == "--update-only":
         root = Path(sys.argv[2]).resolve()
         try:
@@ -999,6 +1045,7 @@ def main() -> None:
         apply_style_patches(root)
         apply_parity_patches(root)
         apply_update_patches(root)
+        apply_import_patches(root)
     except AnchorMissing as e:
         sys.exit(f"APPLY FAILED: {e}")
 
