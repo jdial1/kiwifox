@@ -979,12 +979,44 @@ def patch_nav_graph_history_import(text: str) -> str:
     )
 
 
+def patch_settings_share_import(text: str) -> str:
+    """An "Import from Chrome (Wi-Fi)" entry in Settings > More, under the history-import entry; wired up by
+    KiwiShareImportFragment.kt (bindShareImportPreference). Pulls the encrypted bundle off the LAN share."""
+    anchor = 'android:key="kiwifox_history_import"'
+    if text.count(anchor) != 1:
+        raise AnchorMissing(f"preferences.xml: expected 1 occurrence of {anchor!r}, found {text.count(anchor)}")
+    end = text.index("/>\n", text.index(anchor)) + len("/>\n")
+    entry = (
+        "        <!-- KiwiFox: pull the encrypted Chrome bundle off the Wi-Fi share (KiwiShareImportFragment) -->\n"
+        "        <androidx.preference.Preference\n"
+        '            android:key="kiwifox_share_import"\n'
+        '            app:iconSpaceReserved="false"\n'
+        '            android:title="Import from Chrome (Wi-Fi)"\n'
+        '            android:summary="Pull bookmarks, history and passwords from the PC share in one step" />\n'
+    )
+    return text[:end] + entry + text[end:]
+
+
+def patch_nav_graph_share_import(text: str) -> str:
+    return insert_before(
+        text,
+        '    <fragment\n        android:id="@+id/kiwiThemesFragment"\n',
+        "    <fragment\n"
+        '        android:id="@+id/kiwiShareImportFragment"\n'
+        '        android:name="org.mozilla.fenix.kiwifox.KiwiShareImportFragment"\n'
+        '        android:label="Import from Chrome (Wi-Fi)" />\n',
+        "nav_graph.xml share import",
+    )
+
+
 def apply_import_patches(root: Path) -> None:
-    """Browsing-history import from other browsers' files. Separate so an applied tree can take just these
-    (`apply_kiwifox.py --import-only <tree>`) after copy_sources. Needs patch_nav_graph and
+    """Chrome import: browsing-history-from-file and the Wi-Fi share pull. Separate so an applied tree can take
+    just these (`apply_kiwifox.py --import-only <tree>`) after copy_sources. Needs patch_nav_graph and
     patch_settings_groups to have run."""
     patch(root, f"{FENIX}/res/xml/preferences.xml", patch_settings_history_import)
     patch(root, f"{FENIX}/res/navigation/nav_graph.xml", patch_nav_graph_history_import)
+    patch(root, f"{FENIX}/res/xml/preferences.xml", patch_settings_share_import)
+    patch(root, f"{FENIX}/res/navigation/nav_graph.xml", patch_nav_graph_share_import)
 
 
 def main() -> None:
