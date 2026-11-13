@@ -8,8 +8,18 @@ name: Build KiwiFox
 # (base64 of ~/.android/debug.keystore on the build PC). Without it the APK couldn't install as an update,
 # so the workflow fails instead of publishing one.
 # Scheduled runs build the branch in the repository variable KIWIFOX_BRANCH (default: the default branch).
+#
+# On push: every push to the KiwiFox branch that changes more than documentation is built and published too,
+# so a pushed change reaches installed apps as an update. A push build stays on the Firefox version of the
+# newest KiwiFox release (moving to a new Firefox is the weekly run's job, or a manual run with a tag).
+# Pushes that arrive while a build is running wait; only the newest waiting one is built.
 
 on:
+  push:
+    branches: [feature/style-pass] # keep in step with the KIWIFOX_BRANCH repository variable
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
   schedule:
     - cron: "23 7 * * 1" # Mondays 07:23 UTC
   workflow_dispatch:
@@ -46,8 +56,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           INPUT_TAG: ${{ github.event.inputs.tag }}
           FORCE: ${{ github.event.inputs.force }}
+          EVENT: ${{ github.event_name }}
         run: |
           TAG="$INPUT_TAG"
+          if [ "$EVENT" = "push" ]; then
+            # Same Firefox as the newest KiwiFox release (its title ends in "(Firefox <version>)"); always build.
+            CURRENT=$(gh release view --json name -q .name 2>/dev/null | sed -nE 's/.*\(Firefox ([0-9.]+)\)$/\1/p' || true)
+            if [ -n "$CURRENT" ]; then TAG="FIREFOX_$(echo "$CURRENT" | tr . _)_RELEASE"; fi
+            FORCE=true
+          fi
           if [ -z "$TAG" ]; then
             # Highest FIREFOX_<major>_<minor>[_<patch>]_RELEASE by version number (sort -V puts 158_0_1 before 158_0).
             TAG=$(git ls-remote --tags https://github.com/mozilla-firefox/firefox \
