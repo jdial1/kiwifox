@@ -20,9 +20,13 @@ import mozilla.components.concept.bookmark.parser.BookmarksFileParser
 import mozilla.components.concept.bookmarks.file.BookmarksFileImporter
 import mozilla.components.concept.fetch.Request
 import mozilla.components.concept.fetch.isSuccess
+import mozilla.components.concept.passwords.file.PasswordsFileImporter
+import mozilla.components.concept.storage.Login
+import mozilla.components.concept.storage.LoginEntry
+import mozilla.components.concept.storage.LoginsStorage
 import mozilla.components.lib.bookmark.parser.jsoup.jsoupParser
 import mozilla.components.lib.bookmarks.file.htmlImporter
-import mozilla.components.lib.password.parser.csv.CsvPasswordsFileParser
+import mozilla.components.lib.passwords.file.csvImporter
 import mozilla.appservices.places.BookmarkRoot
 import org.mozilla.fenix.ext.components
 import java.io.ByteArrayInputStream
@@ -121,25 +125,34 @@ object KiwiShareImport {
 
             entries["passwords.csv"]?.let { data ->
                 state = State.Running("Importing passwords…")
-                val parsed = CsvPasswordsFileParser().parse(ByteArrayInputStream(data)).getOrThrow()
-                // Chrome's CSV carries neither formActionOrigin nor httpRealm, and a login with neither is
-                // rejected as invalid. Mark these as form logins (empty formActionOrigin = "any action",
-                // Firefox's own convention for imported web logins).
-                val logins = parsed.logins.map {
-                    if (it.httpRealm.isNullOrEmpty() && it.formActionOrigin.isNullOrEmpty()) {
-                        it.copy(formActionOrigin = "")
-                    } else {
-                        it
+                val f = File(cache, "passwords.csv").apply { writeBytes(data) }
+                val base = app.components.core.passwordsStorage
+                var firstErr: Throwable? = null
+                // Chrome's CSV has neither formActionOrigin nor httpRealm, and the store rejects a login with
+                // neither as invalid. Mark them as form logins (empty formActionOrigin, Firefox's convention)
+                // as they pass through, and remember the first real failure for the result message.
+                val fixing = object : LoginsStorage by base {
+                    override suspend fun addMany(entries: List<LoginEntry>): List<Result<Login>> {
+                        val fixed = entries.map {
+                            if (it.httpRealm.isNullOrEmpty() && it.formActionOrigin.isNullOrEmpty()) {
+                                it.copy(formActionOrigin = "")
+                            } else {
+                                it
+                            }
+                        }
+                        val res = base.addMany(fixed)
+                        if (firstErr == null) firstErr = res.firstOrNull { it.isFailure }?.exceptionOrNull()
+                        return res
                     }
                 }
-                val results = app.components.core.passwordsStorage.addMany(logins)
-                val ok = results.count { it.isSuccess }
-                val rejected = results.size - ok
-                val firstErr = results.firstOrNull { it.isFailure }?.exceptionOrNull()
+                val r = PasswordsFileImporter.csvImporter(context = app, loginsStorage = fixing)
+                    .importPasswordsFromUri(Uri.fromFile(f))
+                val count = r.getOrThrow().count
+                val err = firstErr
                 summary = summary.copy(
-                    passwords = ok,
-                    passwordNote = if (rejected > 0 && firstErr != null) {
-                        "$rejected skipped (${firstErr.javaClass.simpleName}: ${firstErr.message})"
+                    passwords = count,
+                    passwordNote = if (count == 0 && err != null) {
+                        "0 added (${err.javaClass.simpleName}: ${err.message})"
                     } else {
                         null
                     },
