@@ -20,10 +20,9 @@ import mozilla.components.concept.bookmark.parser.BookmarksFileParser
 import mozilla.components.concept.bookmarks.file.BookmarksFileImporter
 import mozilla.components.concept.fetch.Request
 import mozilla.components.concept.fetch.isSuccess
-import mozilla.components.concept.passwords.file.PasswordsFileImporter
 import mozilla.components.lib.bookmark.parser.jsoup.jsoupParser
 import mozilla.components.lib.bookmarks.file.htmlImporter
-import mozilla.components.lib.passwords.file.csvImporter
+import mozilla.components.lib.password.parser.csv.CsvPasswordsFileParser
 import mozilla.appservices.places.BookmarkRoot
 import org.mozilla.fenix.ext.components
 import java.io.ByteArrayInputStream
@@ -46,6 +45,7 @@ object KiwiShareImport {
         val historyAdded: Int? = null,
         val historyDuplicates: Int? = null,
         val passwords: Int? = null,
+        val passwordNote: String? = null,
     )
 
     sealed interface State {
@@ -121,13 +121,29 @@ object KiwiShareImport {
 
             entries["passwords.csv"]?.let { data ->
                 state = State.Running("Importing passwords…")
-                val f = File(cache, "passwords.csv").apply { writeBytes(data) }
-                val importer = PasswordsFileImporter.csvImporter(
-                    context = app,
-                    loginsStorage = app.components.core.passwordsStorage,
+                val parsed = CsvPasswordsFileParser().parse(ByteArrayInputStream(data)).getOrThrow()
+                // Chrome's CSV carries neither formActionOrigin nor httpRealm, and a login with neither is
+                // rejected as invalid. Mark these as form logins (empty formActionOrigin = "any action",
+                // Firefox's own convention for imported web logins).
+                val logins = parsed.logins.map {
+                    if (it.httpRealm.isNullOrEmpty() && it.formActionOrigin.isNullOrEmpty()) {
+                        it.copy(formActionOrigin = "")
+                    } else {
+                        it
+                    }
+                }
+                val results = app.components.core.passwordsStorage.addMany(logins)
+                val ok = results.count { it.isSuccess }
+                val rejected = results.size - ok
+                val firstErr = results.firstOrNull { it.isFailure }?.exceptionOrNull()
+                summary = summary.copy(
+                    passwords = ok,
+                    passwordNote = if (rejected > 0 && firstErr != null) {
+                        "$rejected skipped (${firstErr.javaClass.simpleName}: ${firstErr.message})"
+                    } else {
+                        null
+                    },
                 )
-                val r = importer.importPasswordsFromUri(Uri.fromFile(f))
-                summary = summary.copy(passwords = r.getOrThrow().count)
             }
 
             return summary

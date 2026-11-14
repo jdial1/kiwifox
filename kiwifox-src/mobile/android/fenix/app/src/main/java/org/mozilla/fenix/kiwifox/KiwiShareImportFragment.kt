@@ -150,7 +150,8 @@ internal fun describe(summary: KiwiShareImport.Summary): String {
         parts += "$added history visits" + if (dup > 0) " ($dup already present)" else ""
     }
     summary.passwords?.let { parts += "$it passwords" }
-    return if (parts.isEmpty()) "Nothing to import was found in the bundle." else "Imported " + parts.joinToString(", ") + "."
+    val base = if (parts.isEmpty()) "Nothing to import was found in the bundle." else "Imported " + parts.joinToString(", ") + "."
+    return summary.passwordNote?.let { "$base\n$it" } ?: base
 }
 
 @Composable
